@@ -12,7 +12,7 @@ def get_json(url):
     with urllib.request.urlopen(url) as response:
         return json.loads(response.read().decode())
 
-def download_all():
+def download_all() -> None:
     """
     Descarrega tots els puzzles que hi hagi en la BASE_URL donada.
     Per utilitzar-se: python src/download.py
@@ -24,14 +24,14 @@ def download_all():
 
     try:
         # s'obtenen totes les direccions ID de la pàgina web
-        print("Obteniendo lista de IDs...")
+        print("Obtenint llista d'IDs...")
         puzzle_ids = get_json(BASE_URL)
         i = 1  # inicialitzem, per posar el nom que calgui
         print(f"S'han trobat {len(puzzle_ids)} puzzles. Inicialitzant la descàrrega...")
 
         # es descarreguen tots els puzzles
         for p_id in puzzle_ids:
-            file_path = os.path.join(DEST_FOLDER, f"puzzle_{i}.json")
+            file_path = os.path.join(DEST_FOLDER, f"puzzle_{i:03d}.json")
             
             # si ja està instal·lat, es passa al següent
             if os.path.exists(file_path):
