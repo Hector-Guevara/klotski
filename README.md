@@ -456,7 +456,7 @@ Els _endpoints_ del repositori relacionats amb l'enviament són
 els que requereixen l'ús d'un _token_, que distribuirem a cadascú
 per separat, mitjançant el correu electrònic de la UPC.
 
-1. `POST /api/puzzles/[ID]/stars`: Petició `POST` que inclou un
+1. `POST /api/puzzles/[ID]/votes`: Petició `POST` que inclou un
    ID, un token i una valoració (real entre 0.0 i 5.0).
 
 2. `POST /api/puzzles`: Petició `POST` que inclou un _puzzle_ i
