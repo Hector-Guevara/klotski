@@ -9,8 +9,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from puzzle import Puzzle, State
-from typing import Dict, List, Tuple
-from collections import defaultdict
 from logic import possible_moves, apply_move
 
 import graph_tool.all as gt  # type: ignore[import-untyped]
@@ -22,28 +20,27 @@ def state_key(puzzle: Puzzle, estat: State) -> StateKey:
     Donat un puzzle, i l'estat d'aquest taulell del puzzle, genera una clau única, en format
     de StateKey per dotar d'una identificació única a cada estat del taulell.
     """
-
-    # Creamos un diccionario para agrupar posiciones según la forma de la pieza.
-    # - Clave: La forma de la pieza (una tupla de coordenadas relativas)
-    # - Valor: Una lista con las posiciones (x, y) absolutas en el tablero
-    groups: Dict[Tuple[Tuple[int, int], ...], List[Tuple[int, int]]] = defaultdict(list)
+    # inicialització de la variable
+    groups: dict[tuple[tuple[int, int], ...], list[tuple[int, int]]] = {}
     
-    # 1. Agrupamos dónde está cada pieza basándonos en su forma geométrica
+    # es guarda la posició de cada peça segons la forma
     for i, piece in enumerate(puzzle.pieces):
-        # piece.coords es la forma estática (ej: un cuadrado de 1x1)
-        # state.positions[i] es dónde está puesto ese cuadrado ahora mismo
+
+        if piece.coords not in groups:
+            groups[piece.coords] = []
+            
+        # es guarden les posicions de la peça
         groups[piece.coords].append(estat.positions[i])
         
     canonical_parts = []
     
-    # 2. Ordenamos todo para que el resultado sea siempre determinista
-    # Primero iteramos las formas de las piezas en un orden fijo:
+    # s'itera sobre les peces en ordre
     for shape in sorted(groups.keys()):
-        # Luego ordenamos las posiciones de todas las piezas que tienen esa forma:
+        # s'ordenen les posicions de cada peça
         sorted_positions = tuple(sorted(groups[shape]))
         canonical_parts.append((shape, sorted_positions))
         
-    # 3. Lo convertimos a una tupla de tuplas y luego a texto (string)
+    # es retorna com a text
     return str(tuple(canonical_parts))
 
 def generar_graf(puzzle: Puzzle) -> gt.Graph:
@@ -54,57 +51,48 @@ def generar_graf(puzzle: Puzzle) -> gt.Graph:
     El graf que retorna la funció és en l'extensió .graphml.
     """
 
-    # 1. Creamos el objeto Grafo (dirigido, porque los movimientos tienen sentido)
+    # es crea el graf dirigit amb l'eina aportada per graph-tool
     g = gt.Graph(directed=True)
 
-    # 2. Creamos la propiedad "state" en los vértices. 
-    # Esto es OBLIGATORIO para que 3D_view.py pueda leer el archivo .graphml
     v_state = g.new_vertex_property("string")
     g.vp["state"] = v_state
 
-    # 3. Diccionario auxiliar para no repetir nodos
+    # diccionari auxiliar per no repetir nodes
     # Clave: la huella de texto (StateKey) -> Valor: el objeto vértice de graph-tool
-    visited = {}
+    visited: dict[StateKey, gt.Vertex] = {}
 
-    # 4. Inicializamos la exploración con el estado inicial del puzzle
+    # s'inicialitza l'exploració amb l'estat inicial del puzzle
     start_state = puzzle.start
     start_key = state_key(puzzle, start_state)
     
-    # Creamos el primer nodo
+    # es crea el primer node
     v_start = g.add_vertex()
     g.vp["state"][v_start] = start_key
     visited[start_key] = v_start
 
-    # Usamos una lista como "pila" (Stack) para hacer una exploración DFS
+    # es crea una pila per inicialitzar un algorisme DFS
     stack = [start_state]
 
     print(f"Empezando exploración...")
 
-    # 5. Bucle principal de exploración
+    # DFS
     while stack:
         current_state = stack.pop()
         current_key = state_key(puzzle, current_state)
         v_current = visited[current_key]
 
-        # Probamos todos los movimientos posibles desde el estado actual
+        # es comproven els possibles moviments
         for move in possible_moves(puzzle, current_state):
-            # Calculamos cómo quedaría el tablero tras el movimiento
             next_state = apply_move(puzzle, current_state, move)
             next_key = state_key(puzzle, next_state)
 
-            # Si este estado es nuevo para nosotros...
             if next_key not in visited:
-                # Creamos un nuevo vértice en el grafo
                 v_next = g.add_vertex()
-                # Le pegamos su "etiqueta" de estado
                 g.vp["state"][v_next] = next_key
-                # Lo registramos como visitado
                 visited[next_key] = v_next
-                # Lo añadimos a la pila para explorar sus hijos más tarde
                 stack.append(next_state)
             
-            # Independientemente de si el nodo es nuevo o no, 
-            # añadimos la arista (el camino) entre el actual y el siguiente
+            # encara que no es visiti després, sempre cal afegir l'aresta entre els dos nodes
             g.add_edge(v_current, visited[next_key])
 
     print(f"Exploración finalizada.")
