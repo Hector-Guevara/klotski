@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from puzzle import Puzzle, State
-from logic import possible_moves, apply_move
+from logic import possible_moves, apply_move, is_goal
 
 import graph_tool.all as gt  # type: ignore[import-untyped]
 
@@ -43,14 +43,15 @@ def state_key(puzzle: Puzzle, estat: State) -> StateKey:
     # es retorna com a text
     return str(tuple(canonical_parts))
 
-def generar_graf(puzzle: Puzzle) -> gt.Graph:
+def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
+    # HAY QUE ARREGLAR EL FORMATO, PARA PODER HACER SOLVE.PY
     """
     Donat un puzzle, en retorna el seu graf associat, que defineix la resolució
-    d'aquest puzzle. Els nodes del graf són els possibles estats i posicions de les peces,
+    d'aquest puzzle i la llista amb tots els nodes que són part de la solució. 
+    Els nodes del graf són els possibles estats i posicions de les peces,
     si una aresta els uneix, implica que es pot anar d'un estat a un altre en un sol moviment.
-    El graf que retorna la funció és en l'extensió .graphml.
     """
-
+    
     # es crea el graf dirigit amb l'eina aportada per graph-tool
     g = gt.Graph(directed=True)
 
@@ -66,24 +67,27 @@ def generar_graf(puzzle: Puzzle) -> gt.Graph:
     start_key = state_key(puzzle, start_state)
     
     # es crea el primer node
-    v_start = g.add_vertex()
-    g.vp["state"][v_start] = start_key
-    visited[start_key] = v_start
+    v_inicial = g.add_vertex()
+    g.vp["state"][v_inicial] = start_key
+    visited[start_key] = v_inicial
+
+    nodes_desti: list[gt.Vertex] = []
 
     # es crea una pila per inicialitzar un algorisme DFS
     stack = [start_state]
 
-    print(f"Empezando exploración...")
-
     # DFS
     while stack:
-        current_state = stack.pop()
-        current_key = state_key(puzzle, current_state)
-        v_current = visited[current_key]
+        estat_actual = stack.pop()
+        current_key = state_key(puzzle, estat_actual)
+        v_actual = visited[current_key]
+
+        if is_goal(puzzle, estat_actual):
+            nodes_desti.append(v_actual)
 
         # es comproven els possibles moviments
-        for move in possible_moves(puzzle, current_state):
-            next_state = apply_move(puzzle, current_state, move)
+        for move in possible_moves(puzzle, estat_actual):
+            next_state = apply_move(puzzle, estat_actual, move)
             next_key = state_key(puzzle, next_state)
 
             if next_key not in visited:
@@ -93,14 +97,13 @@ def generar_graf(puzzle: Puzzle) -> gt.Graph:
                 stack.append(next_state)
             
             # encara que no es visiti després, sempre cal afegir l'aresta entre els dos nodes
-            g.add_edge(v_current, visited[next_key])
+            g.add_edge(v_actual, visited[next_key])
 
     print(f"Exploración finalizada.")
     print(f"Nodos totales: {g.num_vertices()}")
     print(f"Aristas totales: {g.num_edges()}")
     
-    return g
-    
+    return g, nodes_desti
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -109,7 +112,7 @@ if __name__ == "__main__":
 
     json_path = Path(sys.argv[1])
     pz = Puzzle.from_json(json_path.read_text())
-    g = generar_graf(pz)
+    g, destins = generar_graf(pz)
 
     output_filename = sys.argv[1].replace('.json', '.graphml')
     g.save(output_filename)
