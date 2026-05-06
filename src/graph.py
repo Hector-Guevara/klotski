@@ -44,7 +44,6 @@ def state_key(puzzle: Puzzle, estat: State) -> StateKey:
     return str(tuple(canonical_parts))
 
 def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
-    # HAY QUE ARREGLAR EL FORMATO, PARA PODER HACER SOLVE.PY
     """
     Donat un puzzle, en retorna el seu graf associat, que defineix la resolució
     d'aquest puzzle i la llista amb tots els nodes que són part de la solució. 
@@ -57,9 +56,12 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
 
     v_state = g.new_vertex_property("string")
     g.vp["state"] = v_state
+    g.ep["move"] = g.new_edge_property("vector<int>")
+
+    # direccions de moviment de les peces
+    dir_to_int = {"N": 0, "E": 1, "S": 2, "W": 3}
 
     # diccionari auxiliar per no repetir nodes
-    # Clave: la huella de texto (StateKey) -> Valor: el objeto vértice de graph-tool
     visited: dict[StateKey, gt.Vertex] = {}
 
     # s'inicialitza l'exploració amb l'estat inicial del puzzle
@@ -97,11 +99,8 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
                 stack.append(next_state)
             
             # encara que no es visiti després, sempre cal afegir l'aresta entre els dos nodes
-            g.add_edge(v_actual, visited[next_key])
-
-    print(f"Exploración finalizada.")
-    print(f"Nodos totales: {g.num_vertices()}")
-    print(f"Aristas totales: {g.num_edges()}")
+            e = g.add_edge(v_actual, visited[next_key])
+            g.ep["move"][e] = [move[0], dir_to_int[move[1]], move[2]]
     
     return g, nodes_desti
 
