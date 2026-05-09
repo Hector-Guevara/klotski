@@ -1,5 +1,5 @@
 """
-Avalua un puzzle del repositori i n'envia la valoració (0.0–5.0 estrelles).
+Avalua un puzzle del repositori i n'envia la valoració (0.0-5.0 estrelles).
 
 El flux és el següent:
   1. Descarrega el puzzle per ID des del repositori.

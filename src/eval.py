@@ -46,29 +46,29 @@ ESTATS_MAX_REF    = 8000 # nodes; referència: klotski i 2swap (2 caselles lliur
 PONTS_MAX_REF     = 10   # número de ponts; més de 10 → puntuació màxima
 
 
-def _normalitzar(valor: float, maxim: float) -> float:
+def normalitzar(valor: float, maxim: float) -> float:
     """Normalitza un valor positiu a [0, 1] fent servir una saturació lineal."""
     return min(valor / maxim, 1.0)
 
 
-def _score_longitud(longitud_optima: int) -> float:
+def score_longitud(longitud_optima: int) -> float:
     """
     Mètrica 1 — Longitud de la solució òptima.
     Un puzzle amb una solució més llarga és, en general, més difícil i interessant.
     """
-    return _normalitzar(longitud_optima, LONGITUD_MAX_REF)
+    return normalitzar(longitud_optima, LONGITUD_MAX_REF)
 
 
-def _score_espai(num_estats: int) -> float:
+def score_espai(num_estats: int) -> float:
     """
     Mètrica 2 — Mida de l'espai d'estats accessibles.
     Un graf gran implica que hi ha moltes configuracions possibles, cosa que
     incrementa la dificultat per a un jugador humà.
     """
-    return _normalitzar(num_estats, ESTATS_MAX_REF)
+    return normalitzar(num_estats, ESTATS_MAX_REF)
 
 
-def _score_unicitat(num_solucions: int) -> float:
+def score_unicitat(num_solucions: int) -> float:
     """
     Mètrica 3 — Unicitat de la solució.
     Menys estats finals → el jugador ha de trobar un camí molt concret.
@@ -81,7 +81,7 @@ def _score_unicitat(num_solucions: int) -> float:
     return 1.0 / num_solucions
 
 
-def _score_eficiencia(longitud_optima: int, num_estats: int) -> float:
+def score_eficiencia(longitud_optima: int, num_estats: int) -> float:
     """
     Mètrica 4 — Eficiència del camí òptim.
     Mesura quina fracció de l'espai d'estats és necessari recórrer per arribar
@@ -97,7 +97,7 @@ def _score_eficiencia(longitud_optima: int, num_estats: int) -> float:
     return max(0.0, 1.0 - ratio)
 
 
-def _score_ponts(g: gt.Graph) -> float:
+def score_ponts(g: gt.Graph) -> float:
     """
     Mètrica 5 — Presència de ponts al graf no dirigit subjacent.
     Un pont és una aresta la eliminació de la qual desconnecta el graf.
@@ -114,7 +114,7 @@ def _score_ponts(g: gt.Graph) -> float:
     # Comptem quantes arestes estan marcades com a pont
     num_ponts = int(arestes_pont.a.sum())
 
-    return _normalitzar(num_ponts, PONTS_MAX_REF)
+    return normalitzar(num_ponts, PONTS_MAX_REF)
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ def _score_ponts(g: gt.Graph) -> float:
 def avaluar_puzzle(pz: Puzzle) -> dict:
     """
     Donat un puzzle, en genera el graf i calcula totes les mètriques.
-    Retorna un diccionari amb les puntuacions parcials i la final (0.0–5.0).
+    Retorna un diccionari amb les puntuacions parcials i la final (0.0-5.0).
     """
 
     # es genera el graf complet del puzzle i els nodes destí (estats finals)
@@ -164,11 +164,11 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
     longitud_optima = int(longitud_minima)
 
     # es calculen totes les mètriques parcials
-    s_longitud  = _score_longitud(longitud_optima)
-    s_espai     = _score_espai(num_estats)
-    s_unicitat  = _score_unicitat(num_solucions)
-    s_eficiencia = _score_eficiencia(longitud_optima, num_estats)
-    s_ponts     = _score_ponts(g)
+    s_longitud  = score_longitud(longitud_optima)
+    s_espai     = score_espai(num_estats)
+    s_unicitat  = score_unicitat(num_solucions)
+    s_eficiencia = score_eficiencia(longitud_optima, num_estats)
+    s_ponts     = score_ponts(g)
 
     # puntuació ponderada final, escalada a [0, 5]
     puntuacio_norm = (
@@ -204,7 +204,7 @@ def imprimir_avaluacio(pz: Puzzle, resultat: dict) -> None:
     print(f"Solucions (dest): {resultat['num_solucions']}")
     print(f"Longitud òptima:  {resultat['longitud_optima']} moviments")
     print()
-    print("Mètriques parcials (0–1):")
+    print("Mètriques parcials (0-1):")
     for nom, val in resultat["scores"].items():
         barra = "█" * int(val * 20)
         print(f"  {nom:<12} {val:.3f}  {barra}")
