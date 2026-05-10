@@ -102,7 +102,7 @@ def generar_puzzle(nombre_peces: int, W: int, H: int, parets: bool, nombre_objec
         mida = random.randint(1, 4)
 
         if area_actual + mida > MAX_AREA:
-            mida = 1 # Intentamos poner una pieza pequeña si no cabe una grande
+            mida = 1 # es posa una peça petita si no hi ha cap altre opció
 
         forma = generar_poliomino_aleatori(mida)
         
@@ -183,9 +183,20 @@ def generar_puzzle(nombre_peces: int, W: int, H: int, parets: bool, nombre_objec
         goals=goals
     )
 
+def validar_puzzle(pz: Puzzle, nombre_peces: int, W: int, H: int, parets: bool, nombre_objectius: int) -> Puzzle:
+    """Donat un puzzle, determina si aquest compleix els paràmetres òptims per ser un bon puzzle.
+    En cas negatiu, genera recursivament un altre puzzle, fins un màxim de 5 vegades."""
 
-# FALTA IMPLEMENTAR EVALUACION (déjamelo a mí @jandroduets)
+    resultat = avaluar_puzzle(pz)
 
+    if resultat['puntuacio'] >= 1.0:
+        return pz
+
+    else:
+        nou_puzzle = generar_puzzle(nombre_peces, W, H, parets, nombre_objectius)
+        # si el nou puzzle generat no és suficientment bo, es torna a crear un
+        return validar_puzzle(nou_puzzle, nombre_peces, W, H, parets, nombre_objectius)  
+    
 if __name__ == "__main__":
     if len(sys.argv) < 7:
         print(f"Ús: python3 {sys.argv[0]} <nombre_peces> <amplada_taulell> <alçada_taulell> <parets/obstacles> <nombre_objectius> <nom_puzzle>")
@@ -202,7 +213,7 @@ if __name__ == "__main__":
     # Generació
     print(f"Generant puzzle '{nom_arxiu}'...")
     nou_puzzle = generar_puzzle(n_peces, W, H, amb_parets, n_objectius)
-
+    nou_puzzle = validar_puzzle(nou_puzzle, n_peces, W, H, amb_parets, n_objectius)
     # Guardar a fitxer JSON
     path = Path(f"{nom_arxiu}.json")
     path.write_text(nou_puzzle.to_json(indent=4))

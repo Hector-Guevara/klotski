@@ -26,22 +26,25 @@ def state_key(puzzle: Puzzle, estat: State) -> StateKey:
     # es guarda la posició de cada peça segons la forma
     for i, piece in enumerate(puzzle.pieces):
 
-        if piece.coords not in groups:
-            groups[piece.coords] = []
+        shape_key = tuple(tuple(c) for c in piece.coords)
+
+        if shape_key not in groups:
+            groups[shape_key] = []
             
         # es guarden les posicions de la peça
-        groups[piece.coords].append(estat.positions[i])
+        groups[shape_key].append((tuple(estat.positions[i])))
         
     canonical_parts = []
     
     # s'itera sobre les peces en ordre
     for shape in sorted(groups.keys()):
-        # s'ordenen les posicions de cada peça
+        # s'ordenen les peces per posició
         sorted_positions = tuple(sorted(groups[shape]))
         canonical_parts.append((shape, sorted_positions))
         
     # es retorna com a text
     return str(tuple(canonical_parts))
+
 
 def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
     """
@@ -85,10 +88,12 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
         v_actual = visited[current_key]
 
         if is_goal(puzzle, estat_actual):
-            nodes_desti.append(v_actual)
+            if v_actual not in nodes_desti:
+                nodes_desti.append(v_actual)
 
         # es comproven els possibles moviments
         for move in possible_moves(puzzle, estat_actual):
+            p_idx, direction, dist = move
             next_state = apply_move(puzzle, estat_actual, move)
             next_key = state_key(puzzle, next_state)
 
@@ -99,8 +104,10 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
                 stack.append(next_state)
             
             # encara que no es visiti després, sempre cal afegir l'aresta entre els dos nodes
-            e = g.add_edge(v_actual, visited[next_key])
-            g.ep["move"][e] = [move[0], dir_to_int[move[1]], move[2]]
+            if g.edge(v_actual, visited[next_key]) is None: 
+                e = g.add_edge(v_actual, visited[next_key])
+
+                g.ep["move"][e] = [p_idx, dir_to_int[direction], dist]
     
     return g, nodes_desti
 
