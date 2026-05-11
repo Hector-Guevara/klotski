@@ -12,6 +12,7 @@ from logic import possible_moves, apply_move, is_goal
 import sys
 import json
 from typing import Optional
+from collections import deque
 
 import graph_tool.all as gt  # type: ignore[import-untyped]
 
@@ -47,38 +48,66 @@ def solucio_puzzle(pz: Puzzle, output_path: Path) -> None:
             millor_cami = llista_arestes
             millor_nodes = llista_nodes
 
-    # es construeix la llista en el format desitjat
+
     solucio_final = []
 
+    # estado real inicial
     estat_actual = pz.start
 
-    # recuperamos los vértices del camino
-    llista_nodes, _ = gt.shortest_path(g, node_inicial, nodes_desti[0])
+    for i in range(len(millor_nodes) - 1):
 
-    for i in range(len(llista_nodes) - 1):
+        key_actual = g.vp["state"][millor_nodes[i]]
+        key_seguent = g.vp["state"][millor_nodes[i + 1]]
 
-        vertex_seguent = llista_nodes[i + 1]
-        key_seguent = g.vp["state"][vertex_seguent]
+        # BFS local entre representatives reals
+        cua = deque()
+        cua.append((estat_actual, []))
 
-        moviment_correcte = None
+        visitats = set()
+        visitats.add(tuple(tuple(p) for p in estat_actual.positions))
 
-        # probamos TODOS los movimientos posibles
-        for move in possible_moves(pz, estat_actual):
+        trobat = False
 
-            nou_estat = apply_move(pz, estat_actual, move)
+        while cua and not trobat:
 
-            # canonicalizamos el resultado
-            if state_key(pz, nou_estat) == key_seguent:
+            estat, cami = cua.popleft()
 
-                moviment_correcte = move
-                estat_actual = nou_estat
+            # si arribem al següent estat canònic
+            if state_key(pz, estat) == key_seguent and cami:
+
+                # afegim els moviments trobats
+                for mov in cami:
+                    p_idx, direction, dist = mov
+                    solucio_final.append([p_idx, direction, dist])
+
+                estat_actual = estat
+                trobat = True
                 break
 
-        assert moviment_correcte is not None
+            # expandim moviments reals
+            for move in possible_moves(pz, estat):
 
-        p_idx, direction, dist = moviment_correcte
+                nou_estat = apply_move(pz, estat, move)
 
-        solucio_final.append([p_idx, direction, dist])
+                real_key = tuple(tuple(p) for p in nou_estat.positions)
+
+                if real_key in visitats:
+                    continue
+
+                # IMPORTANT:
+                # només explorem estats que:
+                #   - segueixen al node actual
+                #   - o arriben al següent
+                canonical = state_key(pz, nou_estat)
+
+                if canonical not in (key_actual, key_seguent):
+                    continue
+
+                visitats.add(real_key)
+
+                cua.append((nou_estat, cami + [move]))
+
+    assert trobat
 
     # es guarda el fitxer json
     with open(output_path, 'w') as f:

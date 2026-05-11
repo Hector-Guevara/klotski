@@ -40,7 +40,7 @@ PES_PONTS             = 0.10  # recompensa l'existència de fases (ponts al graf
 # ---------------------------------------------------------------------------
 
 LONGITUD_MAX_REF  = 80   # moviments; puzzles de més de 80 es consideren 'perfectes'
-                         # referència: simplicity=31, 2swap=17, klotski~81
+                         # referència: simplicity=31, 2swap=17, klotski=116
 ESTATS_MAX_REF    = 8000 # nodes; referència: klotski i 2swap (2 caselles lliures)
                          # generen grafs molt densos; 8000 és un llindar realista
 PONTS_MAX_REF     = 10   # número de ponts; més de 10 → puntuació màxima

@@ -104,10 +104,9 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
                 stack.append(next_state)
             
             # encara que no es visiti després, sempre cal afegir l'aresta entre els dos nodes
-            if g.edge(v_actual, visited[next_key]) is None: 
-                e = g.add_edge(v_actual, visited[next_key])
+            e = g.add_edge(v_actual, visited[next_key])
 
-                g.ep["move"][e] = [p_idx, dir_to_int[direction], dist]
+            g.ep["move"][e] = [p_idx, dir_to_int[direction], dist]
     
     return g, nodes_desti
 

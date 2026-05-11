@@ -1,0 +1,12 @@
+Lista de errores a corregir:
+- Solución de prueba 3 es incorrecta, porque no pone la pieza correcta en el sitio correcto
+    - Probablemente el error esté o en solve.py o en graph.py
+
+- No tengo claro que siempre haga el camino más rápido (revisar por ejemplo, sol?.gif, sample4.json)
+
+- El solve.py no es lo más óptimo posible, porque resuelve el Klotski en 116 pasos, cuando el mínimo posible son 81 pasos.
+    - Revisar solve.py o incluso graph.py
+    - Sí que es verdad que nuestra solución va paso a paso, y en esa de 81 creo que se cuentan pasos de +1 desplazamiento como 1
+    - No sé si es necesario hacer algo con esto
+
+- generate.py hay que pulirlo, para que genere los puzzles interesantes y puedan pasar el filtro
