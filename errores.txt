@@ -10,3 +10,5 @@ Lista de errores a corregir:
     - No sé si es necesario hacer algo con esto
 
 - generate.py hay que pulirlo, para que genere los puzzles interesantes y puedan pasar el filtro
+
+- Falta integrar solve.py con eval.py, para que eval.py no vuelva a intentar buscar el camino más corto
