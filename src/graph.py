@@ -45,7 +45,6 @@ def state_key(puzzle: Puzzle, estat: State) -> StateKey:
     # es retorna com a text
     return str(tuple(canonical_parts))
 
-
 def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
     """
     Donat un puzzle, en retorna el seu graf associat, que defineix la resolució
@@ -53,60 +52,85 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
     Els nodes del graf són els possibles estats i posicions de les peces,
     si una aresta els uneix, implica que es pot anar d'un estat a un altre en un sol moviment.
     """
-    
-    # es crea el graf dirigit amb l'eina aportada per graph-tool
+        
+    # 1. Creació del graf
     g = gt.Graph(directed=True)
 
-    v_state = g.new_vertex_property("string")
+    # 2. Definició de propietats exactes segons 2swapog.graphml
+    v_is_goal = g.new_vertex_property("bool")
+    v_is_start = g.new_vertex_property("bool")
+    v_state = g.new_vertex_property("object") 
+    
+    g.vp["is_goal"] = v_is_goal
+    g.vp["is_start"] = v_is_start
     g.vp["state"] = v_state
-    g.ep["move"] = g.new_edge_property("vector<int>")
+    
+    g.graph_properties["puzzle"] = g.new_graph_property("string")
+    g.graph_properties["puzzle"] = puzzle.to_json()
 
-    # direccions de moviment de les peces
-    dir_to_int = {"N": 0, "E": 1, "S": 2, "W": 3}
-
-    # diccionari auxiliar per no repetir nodes
     visited: dict[StateKey, gt.Vertex] = {}
+    nodes_desti: list[gt.Vertex] = []
 
-    # s'inicialitza l'exploració amb l'estat inicial del puzzle
     start_state = puzzle.start
     start_key = state_key(puzzle, start_state)
     
-    # es crea el primer node
     v_inicial = g.add_vertex()
     g.vp["state"][v_inicial] = start_key
+    g.vp["is_start"][v_inicial] = True
+    g.vp["is_goal"][v_inicial] = is_goal(puzzle, start_state)
     visited[start_key] = v_inicial
 
-    nodes_desti: list[gt.Vertex] = []
-
-    # es crea una pila per inicialitzar un algorisme DFS
     stack = [start_state]
 
-    # DFS
     while stack:
         estat_actual = stack.pop()
         current_key = state_key(puzzle, estat_actual)
         v_actual = visited[current_key]
 
         if is_goal(puzzle, estat_actual):
-            if v_actual not in nodes_desti:
-                nodes_desti.append(v_actual)
+            es_meta_real = True
+            for goal in puzzle.goals:
+                # Gestionem si goal és dict, objecte o tupla (cas actual)
+                if isinstance(goal, dict):
+                    g_idx, g_pos = goal["i"], goal["pos"]
+                elif hasattr(goal, 'i'):
+                    g_idx, g_pos = goal.i, goal.pos
+                else:
+                    # Si és una tupla, solem tenir (index, [x, y])
+                    g_idx, g_pos = goal[0], goal[1]
 
-        # es comproven els possibles moviments
+                # IMPORTANT: Per normalització, busquem si QUALSEVOL peça 
+                # amb la mateixa forma que l'objectiu està a la posició meta.
+                target_shape = tuple(tuple(c) for c in puzzle.pieces[g_idx].coords)
+                trobada = False
+                for i, p_pos in enumerate(estat_actual.positions):
+                    current_shape = tuple(tuple(c) for c in puzzle.pieces[i].coords)
+                    if current_shape == target_shape and list(p_pos) == list(g_pos):
+                        trobada = True
+                        break
+                
+                if not trobada:
+                    es_meta_real = False
+                    break
+            
+            if es_meta_real:
+                g.vp["is_goal"][v_actual] = True
+                if v_actual not in nodes_desti:
+                    nodes_desti.append(v_actual)
+
         for move in possible_moves(puzzle, estat_actual):
-            p_idx, direction, dist = move
             next_state = apply_move(puzzle, estat_actual, move)
             next_key = state_key(puzzle, next_state)
 
             if next_key not in visited:
                 v_next = g.add_vertex()
                 g.vp["state"][v_next] = next_key
+                g.vp["is_start"][v_next] = False
+                g.vp["is_goal"][v_next] = is_goal(puzzle, next_state)
                 visited[next_key] = v_next
                 stack.append(next_state)
             
-            # encara que no es visiti després, sempre cal afegir l'aresta entre els dos nodes
-            e = g.add_edge(v_actual, visited[next_key])
-
-            g.ep["move"][e] = [p_idx, dir_to_int[direction], dist]
+            g.add_edge(v_actual, visited[next_key])
     
     return g, nodes_desti
 
