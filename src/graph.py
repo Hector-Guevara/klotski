@@ -87,36 +87,9 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
         current_key = state_key(puzzle, estat_actual)
         v_actual = visited[current_key]
 
-        if is_goal(puzzle, estat_actual):
-            es_meta_real = True
-            for goal in puzzle.goals:
-                # Gestionem si goal és dict, objecte o tupla (cas actual)
-                if isinstance(goal, dict):
-                    g_idx, g_pos = goal["i"], goal["pos"]
-                elif hasattr(goal, 'i'):
-                    g_idx, g_pos = goal.i, goal.pos
-                else:
-                    # Si és una tupla, solem tenir (index, [x, y])
-                    g_idx, g_pos = goal[0], goal[1]
-
-                # IMPORTANT: Per normalització, busquem si QUALSEVOL peça 
-                # amb la mateixa forma que l'objectiu està a la posició meta.
-                target_shape = tuple(tuple(c) for c in puzzle.pieces[g_idx].coords)
-                trobada = False
-                for i, p_pos in enumerate(estat_actual.positions):
-                    current_shape = tuple(tuple(c) for c in puzzle.pieces[i].coords)
-                    if current_shape == target_shape and list(p_pos) == list(g_pos):
-                        trobada = True
-                        break
-                
-                if not trobada:
-                    es_meta_real = False
-                    break
-            
-            if es_meta_real:
-                g.vp["is_goal"][v_actual] = True
-                if v_actual not in nodes_desti:
-                    nodes_desti.append(v_actual)
+        if is_goal(puzzle, estat_actual) and v_actual not in nodes_desti:
+            g.vp["is_goal"][v_actual] = True
+            nodes_desti.append(v_actual)
 
         for move in possible_moves(puzzle, estat_actual):
             next_state = apply_move(puzzle, estat_actual, move)

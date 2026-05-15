@@ -6,217 +6,371 @@ Donats certs paràmetres, genera un nou puzzle en format .json tenint en compte 
   - Proporció d'estats que formen part del camí òptim (eficiència del camí)
   - Centralitat de pont: si hi ha colls d'ampolla al graf (fases del puzzle)
 
-Ús: python3 generate.py <nombre_peces> <amplada_taulell> <alçada_taulell> <parets/obstacles> <nombre_objectius> <nom_puzzle>,
+Ús: python3 generate.py <nombre_peces> <amplada_taulell> <alçada_taulell> <parets/obstacles> <nombre_objectius> <nom_puzzle>
 on:
-    nombre_peces: enter que dessigna el nombre de peces a generar per aquest puzzle (com a màxim, W·H-1 peces)
-    amplada_taulell: enter que dessigna l'amplada del taulell (W)
-    alçada_taulell: enter que dessigna l'alçada del taulell (H)
-    parets/obstacles: string (si/no), que indica si es vol que hi hagi parets o no
-    nombre_objectius: enter que dessigna el nombre d'objectius per aconseguir que el joc acabi
-    nom_puzzle: string que dessigna el nom del puzzle a guardar (se li afegirà l'extensió .json automàticament)
+    nombre_peces:     enter que designa el nombre de peces a generar (màxim W·H-2)
+    amplada_taulell:  enter que designa l'amplada del taulell (W)
+    alçada_taulell:   enter que designa l'alçada del taulell (H)
+    parets/obstacles: string (si/no), indica si es vol que hi hagi parets
+    nombre_objectius: enter que designa el nombre d'objectius
+    nom_puzzle:       string amb el nom del fitxer (s'afegeix .json automàticament)
 """
+
+from __future__ import annotations
 
 import json
 import random
 import sys
-
 from pathlib import Path
+
 from puzzle import Puzzle, Piece, State
+from eval import avaluar_puzzle, imprimir_avaluacio
 
-from eval import avaluar_puzzle
+# ---------------------------------------------------------------------------
+# Paràmetres de generació
+# ---------------------------------------------------------------------------
 
-def crear_peça_aleatoria() -> Piece:
-    """Retorna una peça a l'atzar d'entre totes les possibles peces donades."""
+# Nombre màxim d'intents per trobar un puzzle prou bo, he decidido poner 60, aun que con 40 probablemente serian suficientes para asegurarme de encontrar un caso ideal, 80 tambien seria una posibilidad a estudiar
+MAX_INTENTS = 60
 
-    peces = {
-        "1x1": [(0, 0)],
-        "2x1": [(0, 0), (1, 0)],
-        "1x2": [(0, 0), (0, 1)],
-        "2x2": [(0, 0), (1, 0), (0, 1), (1, 1)],
-        "L": [(0, 0), (0, 1), (0, 2), (1, 2)],
-        "I": [(0, 0), (0, 1), (0, 2)],
-        "T": [(0, 0), (1, 0), (2, 0), (1, 1)],
-    }
-    # se selecciona una peça
-    peça = random.choice(list(peces.values()))
+# Puntuació mínima acceptable per guardar el puzzle
+PUNTUACIO_MINIMA = 1.5
 
-    return Piece.normalized(peça)
+# Fracció d'ocupació del taulell: puzzles densos → grafs més grans → millor puntuació
+# Un taulell gairebé ple (poques caselles lliures) genera molt més espai d'estats
+OCUPACIO_OBJECTIU = 0.85
 
-def generar_poliomino_aleatori(n_celdes: int) -> Piece:
+# Distància mínima de Manhattan entre posició inicial i objectiu d'una peça
+# Objectius llunyans → solucions més llargues → millor puntuació
+DISTANCIA_MIN_OBJECTIU = 3
+
+
+# ---------------------------------------------------------------------------
+# Catàleg de formes: evitem excés de peces 1x1 (que simplifiquen el graf)
+# Les peces més grans restringeixen més els moviments → grafs més interessants
+# ---------------------------------------------------------------------------
+
+# Totes les orientacions possibles de cada família de poliominós fins a mida 4
+FORMES_CATALEG: list[list[tuple[int, int]]] = [
+    # Dòminos (mida 2) — 2 orientacions
+    [(0, 0), (1, 0)],
+    [(0, 0), (0, 1)],
+    # Triòminós I (mida 3) — 2 orientacions
+    [(0, 0), (1, 0), (2, 0)],
+    [(0, 0), (0, 1), (0, 2)],
+    # Triòminós L (mida 3) — 4 orientacions
+    [(0, 0), (0, 1), (1, 0)],
+    [(0, 0), (1, 0), (1, 1)],
+    [(0, 1), (1, 0), (1, 1)],
+    [(0, 0), (0, 1), (1, 1)],
+    # Tetròminós O (mida 4) — 1 orientació
+    [(0, 0), (0, 1), (1, 0), (1, 1)],
+    # Tetròminós I (mida 4) — 2 orientacions
+    [(0, 0), (1, 0), (2, 0), (3, 0)],
+    [(0, 0), (0, 1), (0, 2), (0, 3)],
+    # Tetròminós T (mida 4) — 4 orientacions
+    [(0, 0), (1, 0), (2, 0), (1, 1)],
+    [(0, 0), (0, 1), (0, 2), (1, 1)],
+    [(0, 1), (1, 0), (1, 1), (2, 1)],
+    [(0, 1), (1, 0), (1, 1), (1, 2)],
+    # Tetròminós L (mida 4) — 4 orientacions
+    [(0, 0), (0, 1), (0, 2), (1, 2)],
+    [(0, 0), (1, 0), (2, 0), (2, 1)],  # corregit
+    [(0, 0), (1, 0), (1, 1), (1, 2)],
+    [(0, 1), (1, 1), (2, 0), (2, 1)],
+    # Tetròminós J (mida 4) — 4 orientacions
+    [(0, 0), (0, 1), (0, 2), (1, 0)],
+    [(0, 0), (1, 0), (2, 0), (0, 1)],  # corregit
+    [(0, 2), (1, 0), (1, 1), (1, 2)],
+    [(0, 0), (0, 1), (1, 1), (2, 1)],
+    # Tetròminós S (mida 4) — 2 orientacions
+    [(0, 1), (1, 0), (1, 1), (2, 0)],
+    [(0, 0), (0, 1), (1, 1), (1, 2)],
+    # Tetròminós Z (mida 4) — 2 orientacions
+    [(0, 0), (1, 0), (1, 1), (2, 1)],
+    [(0, 1), (0, 2), (1, 0), (1, 1)],
+]
+
+# Pesos de mostreig: afavorim peces de mida 2-4 per sobre de les 1x1
+# (les peces grans restringeixen més el taulell i fan puzzles més complexos)
+PESOS_MIDA = {1: 1, 2: 4, 3: 6, 4: 5}
+
+
+# ---------------------------------------------------------------------------
+# Generació de peces
+# ---------------------------------------------------------------------------
+
+def _forma_aleatoria_ponderada() -> list[tuple[int, int]]:
     """
-    Genera un poliomino aleatori de n caselles connectades.
-    Utilitza l'algorisme de creixement per assegurar la contigüitat.
+    Tria una forma del catàleg ponderada per mida.
+    Afavoreix peces de mida 2-4 per generar puzzles més densos i complexos.
     """
-    if n_celdes < 1:
-        raise ValueError("El poliomino ha de tenir almenys una casella.")
+    # construïm la llista de pesos per a cada forma del catàleg
+    pesos = [PESOS_MIDA[len(f)] for f in FORMES_CATALEG]
+    forma = random.choices(FORMES_CATALEG, weights=pesos, k=1)[0]
+    return forma
 
-    # Comencem amb una casella a l'origen
-    coords = set([(0, 0)])
-    
-    # Conjunt de caselles candidates (les que toquen les que ja tenim)
-    candidates = set([(0, 1), (0, -1), (1, 0), (-1, 0)])
 
-    while len(coords) < n_celdes:
-        # Triem una candidata a l'atzar i l'afegim a la peça
-        nova_celda = random.choice(list(candidates))
-        coords.add(nova_celda)
-        candidates.remove(nova_celda)
+def _col·locar_peca(
+    forma: list[tuple[int, int]],
+    W: int,
+    H: int,
+    ocupades: set[tuple[int, int]],
+) -> tuple[int, int] | None:
+    """
+    Intenta col·locar una peça al taulell en una posició vàlida aleatòria.
+    Retorna la posició (px, py) si és possible, o None si no hi cap.
+    Fa múltiples intents aleatoris abans de rendir-se.
+    """
+    # calculem el desplaçament màxim vàlid per a aquesta forma
+    max_dx = max(dx for dx, dy in forma)
+    max_dy = max(dy for dx, dy in forma)
 
-        # Actualitzem els veïns de la nova celda que podrien ser candidats
-        x, y = nova_celda
-        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-            vei = (x + dx, y + dy)
-            if vei not in coords:
-                candidates.add(vei)
+    # llista de totes les posicions vàlides on podria cabre la peça
+    candidats = [
+        (px, py)
+        for px in range(W - max_dx)
+        for py in range(H - max_dy)
+        if all((px + dx, py + dy) not in ocupades for dx, dy in forma)
+    ]
 
-    # Usem el teu mètode static per normalitzar i ordenar la peça automàticament
-    return Piece.normalized(list(coords))
+    if not candidats:
+        return None
 
-def generar_puzzle(nombre_peces: int, W: int, H: int, parets: bool, nombre_objectius: int) -> Puzzle: 
-    """Genera un nou puzzle tenint en compte els criteris d'interès."""
-    
-    # 1. Generar parets
-    walls_list = []
-    if parets:
-        # Posem un nombre de parets proporcional a la mida (aprox 10%)
-        n_walls = (W * H) // 10
-        for _ in range(n_walls):
-            wx, wy = random.randint(0, W-1), random.randint(0, H-1)
-            walls_list.append((wx, wy))
-    walls = tuple(sorted(set(walls_list)))
+    return random.choice(candidats)
 
-    # 2. Generar peces i posicions sense solapaments
-    ocupades = set(walls)
-    peces_generades = []
-    posicions_inicials = []
 
-    # mida màxima a ocupar, perquè pugui haver moviment de les peces
-    MAX_AREA = (W * H) - 2
-    area_actual = len(ocupades)
+# ---------------------------------------------------------------------------
+# Generació de parets
+# ---------------------------------------------------------------------------
 
-    intents_globals = 0
-    while len(peces_generades) < nombre_peces and area_actual < MAX_AREA and intents_globals < 500:
-        intents_globals += 1
-        
-        # Mida aleatòria de la peça (1 a 4 cel·les)
-        mida = random.randint(1, 4)
+def _generar_parets(W: int, H: int, n_walls: int) -> tuple[tuple[int, int], ...]:
+    """
+    Genera parets en posicions que no bloquegin completament el taulell.
+    Evita les cantonades i els centres per no crear zones inaccessibles.
+    """
+    candidates = [
+        (x, y) for x in range(W) for y in range(H)
+        # evitem les cantonades extremes que tendeixen a bloquejar massa
+        if not (x in (0, W - 1) and y in (0, H - 1))
+    ]
+    random.shuffle(candidates)
+    return tuple(sorted(candidates[:n_walls]))
 
-        if area_actual + mida > MAX_AREA:
-            mida = 1 # es posa una peça petita si no hi ha cap altre opció
 
-        forma = generar_poliomino_aleatori(mida)
-        
-        # Posició aleatòria
-        px = random.randint(0, W - 1)
-        py = random.randint(0, H - 1)
-        
-        # Validar si cap i no solapa
-        celdes_abs = []
-        possible = True
-        for dx, dy in forma.coords:
-            ax, ay = px + dx, py + dy
-            if ax >= W or ay >= H or (ax, ay) in ocupades:
-                possible = False
-                break
-            celdes_abs.append((ax, ay))
-        
-        if possible:
-            peces_generades.append(forma)
-            posicions_inicials.append((px, py))
-            ocupades.update(celdes_abs)
-            area_actual += len(forma.coords)
+# ---------------------------------------------------------------------------
+# Generació d'objectius
+# ---------------------------------------------------------------------------
 
-    # --- ORDRE CANÒNIC (Obligatori per a la classe Puzzle) ---
-    # Ordenem per (Peça, Posició)
-    pairs = sorted(zip(peces_generades, posicions_inicials))
-    peces_final = tuple(p[0] for p in pairs)
-    posicions_final = tuple(p[1] for p in pairs)
+def _distancia_manhattan(pos1: tuple[int, int], pos2: tuple[int, int]) -> int:
+    return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
-    celdas_libres_de_muros = []
-    for x in range(W):
-        for y in range(H):
-            if (x, y) not in walls:
-                celdas_libres_de_muros.append((x, y))
 
-    # 3. Generar objectius aleatoris
-    # Triem n peces a l'atzar per assignar-los un objectiu
-    idx_peces = list(range(len(peces_final)))
+def _generar_objectius(
+    peces: tuple[Piece, ...],
+    posicions: tuple[tuple[int, int], ...],
+    walls: tuple[tuple[int, int], ...],
+    W: int,
+    H: int,
+    nombre_objectius: int,
+) -> tuple[tuple[int, tuple[int, int]], ...]:
+    """
+    Genera objectius que estiguin lluny de la posició inicial de la peça.
+    Objectius llunyans → solucions més llargues → millor puntuació a eval.py.
+    """
+    walls_set = set(walls)
+    idx_peces = list(range(len(peces)))
     random.shuffle(idx_peces)
 
     goals_list = []
 
-    for i in range(min(nombre_objectius, len(peces_final))):
-        p_idx = idx_peces[i]
-        peça = peces_final[p_idx]
-        pos_actual = posicions_final[p_idx]
-        
-        # Buscamos posiciones (gx, gy) donde quepa TODA la pieza sin tocar muros
-        opciones_validas = []
-        
-        for gx in range(W):
-            for gy in range(H):
+    for p_idx in idx_peces[:nombre_objectius]:
+        peça = peces[p_idx]
+        pos_actual = posicions[p_idx]
+        max_dx = max(dx for dx, dy in peça.coords)
+        max_dy = max(dy for dx, dy in peça.coords)
+
+        # recollim totes les posicions vàlides on cap la peça, ordenades per distància decreixent
+        opcions = []
+        for gx in range(W - max_dx):
+            for gy in range(H - max_dy):
                 if (gx, gy) == pos_actual:
                     continue
-                
-                toda_la_pieza_cabe = True
-                for dx, dy in peça.coords:
-                    ax, ay = gx + dx, gy + dy
-                    # Comprobar límites y paredes
-                    if ax >= W or ay >= H or (ax, ay) in walls:
-                        toda_la_pieza_cabe = False
-                        break
-                
-                if toda_la_pieza_cabe:
-                    opciones_validas.append((gx, gy))
-        
-        if opciones_validas:
-            gx, gy = random.choice(opciones_validas)
-            goals_list.append((p_idx, (gx, gy)))
+                # la peça ha de cabre sencera sense tocar parets
+                if all(
+                    (gx + dx, gy + dy) not in walls_set
+                    for dx, dy in peça.coords
+                ):
+                    dist = _distancia_manhattan(pos_actual, (gx, gy))
+                    opcions.append((dist, (gx, gy)))
 
-    goals = tuple(sorted(goals_list))
+        if not opcions:
+            continue
 
-    return Puzzle(
-        W=W, H=H,
-        walls=walls,
-        pieces=peces_final,
-        start=State(posicions_final),
-        goals=goals
+        # ordenem per distància decreixent i agafem del terç superior (les més llunyanes)
+        opcions.sort(reverse=True)
+        tall = max(1, len(opcions) // 3)
+        _, (gx, gy) = random.choice(opcions[:tall])
+
+        goals_list.append((p_idx, (gx, gy)))
+
+    return tuple(sorted(goals_list))
+
+
+# ---------------------------------------------------------------------------
+# Generació principal del puzzle
+# ---------------------------------------------------------------------------
+
+def generar_puzzle(
+    nombre_peces: int, W: int, H: int, parets: bool, nombre_objectius: int
+) -> Puzzle | None:
+    """
+    Genera un puzzle aleatori intentant maximitzar la complexitat:
+      - Taulell dens (prop de OCUPACIO_OBJECTIU d'ocupació)
+      - Peces de mida 2-4 preferentment (restringeixen més el moviment)
+      - Objectius llunyans de la posició inicial (solucions més llargues)
+    Retorna None si no s'ha pogut generar un puzzle vàlid.
+    """
+
+    # 1. Parets
+    walls: tuple[tuple[int, int], ...] = ()
+    if parets:
+        n_walls = max(1, (W * H) // 10)
+        walls = _generar_parets(W, H, n_walls)
+
+    ocupades: set[tuple[int, int]] = set(walls)
+
+    # 2. Peces i posicions
+    # Reservem com a mínim 2 caselles lliures per permetre moviment
+    area_total = W * H - len(walls)
+    area_max = int(area_total * OCUPACIO_OBJECTIU)
+
+    peces_generades: list[Piece] = []
+    posicions_inicials: list[tuple[int, int]] = []
+    area_actual = 0
+
+    intents = 0
+    while len(peces_generades) < nombre_peces and intents < 300:
+        intents += 1
+
+        forma_coords = _forma_aleatoria_ponderada()
+        mida = len(forma_coords)
+
+        # si afegir aquesta peça supera el límit d'ocupació, provem amb una 1x1
+        if area_actual + mida > area_max:
+            forma_coords = [(0, 0)]
+
+        pos = _col·locar_peca(forma_coords, W, H, ocupades)
+        if pos is None:
+            continue
+
+        px, py = pos
+        peça = Piece.normalized(forma_coords)
+        peces_generades.append(peça)
+        posicions_inicials.append((px, py))
+
+        for dx, dy in forma_coords:
+            ocupades.add((px + dx, py + dy))
+        area_actual += len(forma_coords)
+
+    if not peces_generades:
+        return None
+
+    # 3. Ordre canònic obligatori per a la classe Puzzle
+    pairs = sorted(zip(peces_generades, posicions_inicials))
+    peces_final = tuple(p for p, _ in pairs)
+    posicions_final = tuple(pos for _, pos in pairs)
+
+    # 4. Objectius llunyans
+    goals = _generar_objectius(
+        peces_final, posicions_final, walls, W, H, nombre_objectius
     )
 
-def validar_puzzle(pz: Puzzle, nombre_peces: int, W: int, H: int, parets: bool, nombre_objectius: int) -> Puzzle:
-    """Donat un puzzle, determina si aquest compleix els paràmetres òptims per ser un bon puzzle.
-    En cas negatiu, genera recursivament un altre puzzle, fins un màxim de 5 vegades."""
+    if not goals:
+        return None
 
-    resultat = avaluar_puzzle(pz)
+    try:
+        return Puzzle(
+            W=W, H=H,
+            walls=walls,
+            pieces=peces_final,
+            start=State(posicions_final),
+            goals=goals,
+        )
+    except ValueError:
+        return None
 
-    if resultat['puntuacio'] >= 1.0:
-        return pz
 
-    else:
-        nou_puzzle = generar_puzzle(nombre_peces, W, H, parets, nombre_objectius)
-        # si el nou puzzle generat no és suficientment bo, es torna a crear un
-        return validar_puzzle(nou_puzzle, nombre_peces, W, H, parets, nombre_objectius)  
-    
-if __name__ == "__main__":
-    if len(sys.argv) < 7:
-        print(f"Ús: python3 {sys.argv[0]} <nombre_peces> <amplada_taulell> <alçada_taulell> <parets/obstacles> <nombre_objectius> <nom_puzzle>")
+# ---------------------------------------------------------------------------
+# Selecció del millor puzzle entre múltiples intents
+# ---------------------------------------------------------------------------
+
+def generar_millor_puzzle(
+    nombre_peces: int, W: int, H: int, parets: bool, nombre_objectius: int
+) -> tuple[Puzzle, dict]:
+    """
+    Genera fins a MAX_INTENTS puzzles i en retorna el millor segons eval.py.
+    Substitueix la recursió il·limitada de la versió anterior per un bucle
+    amb límit fix, cosa que evita desbordaments de pila i temps d'execució
+    imprevisibles.
+    """
+    millor_puzzle: Puzzle | None = None
+    millor_resultat: dict = {"puntuacio": -1.0}
+
+    for intent in range(1, MAX_INTENTS + 1):
+        pz = generar_puzzle(nombre_peces, W, H, parets, nombre_objectius)
+        if pz is None:
+            continue
+
+        try:
+            resultat = avaluar_puzzle(pz)
+        except Exception:
+            # grafs buits o puzzles trivials poden fallar a eval
+            continue
+
+        print(f"  Intent {intent:2d}/{MAX_INTENTS}: puntuació {resultat['puntuacio']:.2f} / 5.00")
+
+        if resultat["puntuacio"] > millor_resultat["puntuacio"]:
+            millor_puzzle = pz
+            millor_resultat = resultat
+
+        # si ja tenim un puzzle prou bo, parem abans d'exhaurir els intents
+        if millor_resultat["puntuacio"] >= PUNTUACIO_MINIMA:
+            print(f"  ✓ Puntuació acceptable trobada a l'intent {intent}.")
+            break
+
+    if millor_puzzle is None:
+        print("Error: no s'ha pogut generar cap puzzle vàlid.")
         sys.exit(1)
 
-    # Parseig d'arguments
-    n_peces = int(sys.argv[1])
-    W = int(sys.argv[2])
-    H = int(sys.argv[3])
-    amb_parets = sys.argv[4].lower() == "si"
-    n_objectius = int(sys.argv[5])
-    nom_arxiu = sys.argv[6]
+    return millor_puzzle, millor_resultat
 
-    # Generació
-    print(f"Generant puzzle '{nom_arxiu}'...")
-    nou_puzzle = generar_puzzle(n_peces, W, H, amb_parets, n_objectius)
-    nou_puzzle = validar_puzzle(nou_puzzle, n_peces, W, H, amb_parets, n_objectius)
-    # Guardar a fitxer JSON
+
+# ---------------------------------------------------------------------------
+# Punt d'entrada
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    if len(sys.argv) < 7:
+        print(
+            f"Ús: python3 {sys.argv[0]} "
+            "<nombre_peces> <amplada_taulell> <alçada_taulell> "
+            "<parets/obstacles> <nombre_objectius> <nom_puzzle>"
+        )
+        sys.exit(1)
+
+    n_peces      = int(sys.argv[1])
+    W            = int(sys.argv[2])
+    H            = int(sys.argv[3])
+    amb_parets   = sys.argv[4].lower() == "si"
+    n_objectius  = int(sys.argv[5])
+    nom_arxiu    = sys.argv[6]
+
+    print(f"Generant puzzle '{nom_arxiu}' ({W}×{H}, {n_peces} peces)...")
+    millor, resultat = generar_millor_puzzle(n_peces, W, H, amb_parets, n_objectius)
+
     path = Path(f"{nom_arxiu}.json")
-    path.write_text(nou_puzzle.to_json(indent=4))
-    
-    print(f"Fet! Puzzle guardat a {path}")
-    print(f"Peces generades: {len(nou_puzzle.pieces)}")
+    path.write_text(millor.to_json(indent=4))
+
+    print(f"\nMillor puzzle guardat a '{path}'")
+    imprimir_avaluacio(millor, resultat)

@@ -1,126 +1,100 @@
 """
 Donat un puzzle, el resol.
-
+ 
 Ús: python3 solve.py <puzzle.json>
 """
-
-from graph import generar_graf, state_key, StateKey
+ 
+from graph import generar_graf, state_key
 from puzzle import Puzzle, State
 from pathlib import Path
 from logic import possible_moves, apply_move, is_goal
-
+ 
 import sys
 import json
-from typing import Optional
 from collections import deque
-
+from typing import Optional
+ 
 import graph_tool.all as gt  # type: ignore[import-untyped]
-
+ 
+ 
+def _bfs_real(pz: Puzzle) -> Optional[list]:
+    """
+    BFS directe sobre estats reals del puzzle.
+    Retorna la llista de moviments [peça, direcció, dist] òptima,
+    o None si el puzzle no té solució.
+ 
+    Aquest enfocament evita el problema de la versió anterior, on
+    la reconstrucció del camí a partir del graf canònic podia introduir
+    moviments innecessaris: una aresta del graf canònic pot correspondre
+    a múltiples moviments reals, i llegir g.ep["move"] directament
+    només en recuperava un, que no necessàriament era el més curt.
+    """
+    estat_inicial = pz.start
+ 
+    # cua de BFS: cada element és (estat_actual, camí_de_moviments_fins_aquí)
+    cua: deque[tuple[State, list]] = deque()
+    cua.append((estat_inicial, []))
+ 
+    # conjunt de posicions visitades per evitar cicles
+    visitats: set[tuple] = set()
+    visitats.add(tuple(tuple(p) for p in estat_inicial.positions))
+ 
+    while cua:
+        estat, cami = cua.popleft()
+ 
+        # si hem arribat a un estat final, retornem el camí
+        if is_goal(pz, estat):
+            return cami
+ 
+        # expandim tots els moviments possibles d'un sol pas
+        for move in possible_moves(pz, estat):
+            nou_estat = apply_move(pz, estat, move)
+            clau = tuple(tuple(p) for p in nou_estat.positions)
+ 
+            if clau in visitats:
+                continue
+ 
+            visitats.add(clau)
+            p_idx, direction, dist = move
+            cua.append((nou_estat, cami + [[p_idx, direction, dist]]))
+ 
+    # si la cua s'esgota sense trobar solució
+    return None
+ 
+ 
 def solucio_puzzle(pz: Puzzle, output_path: Path) -> None:
     """
-    Donat un puzzle pz, genera un arxiu .sol.json, on resol el puzzle seguint el camí més ràpid possible.
-    Aquesta funció fa servir l'algorisme BFS.
+    Donat un puzzle pz, genera un arxiu .sol.json amb la seqüència òptima
+    de moviments per resoldre'l.
+ 
+    Fa servir el graf per verificar que el puzzle és resoluble i obtenir
+    la distància mínima esperada, però la reconstrucció del camí es fa
+    amb un BFS directe sobre estats reals per garantir l'optimalitat.
     """
-
-    # s'importa el graf i els nodes destí del puzzle associat
+ 
+    # es genera el graf per verificar la resolubilitat i obtenir els nodes destí
     g, nodes_desti = generar_graf(pz)
-
+ 
     assert nodes_desti, "Aquest puzzle no té cap solució"
-
-    # es troba el node origen, que correspon a l'estat inicial del taulell
-    estat_inicial = state_key(pz, pz.start)
-    node_inicial = gt.find_vertex(g, g.vp["state"], estat_inicial)[0]
-    millor_nodes = None
-
-    # mapa invers per recuperar la lletra de la direcció
-    int_to_dir = {0: "N", 1: "E", 2: "S", 3: "W"}
-
-    # com que hi pot haver múltiples finals, busquem el camí més curt de tots
-    distancia_minima = float('inf')
-    millor_cami: Optional[list[gt.Edge]] = None
-
-    for desti in nodes_desti:
-
-        llista_nodes, llista_arestes = gt.shortest_path(g, node_inicial, desti)
-
-        if len(llista_arestes) < distancia_minima:
-            distancia_minima = len(llista_arestes)
-            millor_cami = llista_arestes
-            millor_nodes = llista_nodes
-
-
-    solucio_final = []
-
-    # estado real inicial
-    estat_actual = pz.start
-
-    for i in range(len(millor_nodes) - 1):
-
-        key_actual = g.vp["state"][millor_nodes[i]]
-        key_seguent = g.vp["state"][millor_nodes[i + 1]]
-
-        # BFS local entre representatives reals
-        cua = deque()
-        cua.append((estat_actual, []))
-
-        visitats = set()
-        visitats.add(tuple(tuple(p) for p in estat_actual.positions))
-
-        trobat = False
-
-        while cua and not trobat:
-
-            estat, cami = cua.popleft()
-
-            # si arribem al següent estat canònic
-            if state_key(pz, estat) == key_seguent and cami:
-
-                # afegim els moviments trobats
-                for mov in cami:
-                    p_idx, direction, dist = mov
-                    solucio_final.append([p_idx, direction, dist])
-
-                estat_actual = estat
-                trobat = True
-                break
-
-            # expandim moviments reals
-            for move in possible_moves(pz, estat):
-
-                nou_estat = apply_move(pz, estat, move)
-
-                real_key = tuple(tuple(p) for p in nou_estat.positions)
-
-                if real_key in visitats:
-                    continue
-
-                # IMPORTANT:
-                # només explorem estats que:
-                #   - segueixen al node actual
-                #   - o arriben al següent
-                canonical = state_key(pz, nou_estat)
-
-                if canonical not in (key_actual, key_seguent):
-                    continue
-
-                visitats.add(real_key)
-
-                cua.append((nou_estat, cami + [move]))
-
-    assert trobat
-
+ 
+    # BFS directe sobre estats reals: garanteix el camí òptim sense artefactes
+    # del graf canònic (on una aresta pot amagar múltiples moviments reals)
+    solucio_final = _bfs_real(pz)
+ 
+    assert solucio_final is not None, "El puzzle és resoluble però el BFS no ha trobat solució"
+ 
     # es guarda el fitxer json
     with open(output_path, 'w') as f:
         json.dump(solucio_final, f)
-    
-
+ 
+ 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"Ús: python3 {sys.argv[0]} <puzzle.json>")
         sys.exit(1)
-
+ 
     puzzle_path = Path(sys.argv[1])
     puzzle = Puzzle.from_json(puzzle_path.read_text())
-    
+ 
     sol_path = puzzle_path.with_suffix(".sol.json")
     solucio_puzzle(puzzle, sol_path)
