@@ -1,5 +1,5 @@
 """
-Avalua un puzzle del repositori i n'envia la valoració (0.0–5.0 estrelles).
+Avalua un puzzle del repositori i n'envia la valoració (0–5 estrelles reals com a enters).
  
 El flux és el següent:
   1. Descarrega el puzzle per ID des del repositori.
@@ -8,9 +8,9 @@ El flux és el següent:
  
 Ús:
     python3 rate.py <puzzle_id> <token>
-    python3 rate.py <puzzle_id> <token> [--puntuacio <0.0-5.0>]
+    python3 rate.py <puzzle_id> <token> [--puntuacio <0-5>]
  
-Si no s'especifica --puntuacio, es fa servir la valoració calculada per eval.py.
+Si no s'especifica --puntuacio, es fa servir la valoració calculada per eval.py (arrodonida a enter).
 """
  
 from __future__ import annotations
@@ -58,15 +58,15 @@ def descarregar_puzzle(puzzle_id: str) -> Puzzle:
     return Puzzle.from_json(json.dumps(puzzle_data))
  
  
-def enviar_valoracio(puzzle_id: str, token: str, puntuacio: float) -> None:
+def enviar_valoracio(puzzle_id: str, token: str, puntuacio: int) -> None:
     """
-    Envia una valoració (0.0-5.0) al repositori per al puzzle indicat.
+    Envia una valoració (0-5 com a enter) al repositori per al puzzle indicat.
     Fa servir una petició POST autenticada amb el token Bearer.
     """
     url = f"{BASE_URL}/{puzzle_id}/votes"
  
-    # es construeix el cos de la petició en format JSON
-    cos = json.dumps({"score": puntuacio}).encode()
+    # CORRECCIÓ: Cambiamos la clave "score" por "stars" que es la que pide el servidor
+    cos = json.dumps({"stars": puntuacio}).encode()
  
     # es crea la petició amb el token d'autenticació a la capçalera
     peticio = urllib.request.Request(
@@ -99,10 +99,10 @@ def enviar_valoracio(puzzle_id: str, token: str, puntuacio: float) -> None:
 # Flux principal
 # ---------------------------------------------------------------------------
  
-def valorar_puzzle(puzzle_id: str, token: str, puntuacio_manual: float | None) -> None:
+def valorar_puzzle(puzzle_id: str, token: str, puntuacio_manual: int | None) -> None:
     """
-    Orquestra el flux complet: descarrega, avalua i envia la valoració.
-    Si puntuacio_manual és None, es fa servir la puntuació calculada per eval.py.
+    Orquestra el flux complet: descarrega, avalua i envia la valoració com a enter.
+    Si puntuacio_manual és None, es fa servir la puntuació calculada per eval.py arrodonida.
     """
  
     # pas 1: descarrega del repositori
@@ -114,15 +114,16 @@ def valorar_puzzle(puzzle_id: str, token: str, puntuacio_manual: float | None) -
     resultat = avaluar_puzzle(pz)
     imprimir_avaluacio(pz, resultat)
  
-    # pas 3: es decideix quina puntuació s'envia
+    # pas 3: es decideix quina puntuació s'envia (garantint ENTERS)
     if puntuacio_manual is not None:
-        # l'usuari ha sobreescrit la puntuació manualment
-        puntuacio_final = max(0.0, min(5.0, puntuacio_manual))
-        print(f"\nPuntuació manual especificada: {puntuacio_final:.2f} / 5.00")
+        # l'usuari ha sobreescrit la puntuació manualment (ja és un int gràcies a argparse)
+        puntuacio_final = max(0, min(5, puntuacio_manual))
+        print(f"\nPuntuació manual especificada: {puntuacio_final} / 5")
     else:
-        # es fa servir la puntuació calculada per eval.py
-        puntuacio_final = resultat["puntuacio"]
-        print(f"\nPuntuació automàtica (eval.py): {puntuacio_final:.2f} / 5.00")
+        # es fa servir la puntuació calculada per eval.py i es força a enter (arrodonint)
+        puntuacio_final = round(resultat["puntuacio"])
+        puntuacio_final = max(0, min(5, puntuacio_final))
+        print(f"\nPuntuació automàtica (eval.py, arrodonida): {puntuacio_final} / 5")
  
     # pas 4: enviament al repositori
     print(f"Enviant valoració al repositori...")
@@ -135,7 +136,7 @@ def valorar_puzzle(puzzle_id: str, token: str, puntuacio_manual: float | None) -
  
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Avalua un puzzle del repositori i n'envia la valoració."
+        description="Avalua un puzzle del repositori i n'envia la valoració (enters de 0 a 5)."
     )
     parser.add_argument(
         "puzzle_id",
@@ -147,10 +148,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--puntuacio",
-        type=float,
+        type=int,
         default=None,
         metavar="N",
-        help="Puntuació manual (0.0-5.0). Si no s'especifica, es fa servir eval.py",
+        help="Puntuació manual sencera (0-5). Si no s'especifica, es fa servir eval.py",
     )
  
     args = parser.parse_args()
