@@ -38,7 +38,7 @@ PUNTUACIO_MINIMA = 1.5
 
 # Fracció d'ocupació del taulell: puzzles densos → grafs més grans → millor puntuació
 # Un taulell gairebé ple (poques caselles lliures) genera molt més espai d'estats
-OCUPACIO_OBJECTIU = 0.85
+OCUPACIO_OBJECTIU = 0.70
 
 # Distància mínima de Manhattan entre posició inicial i objectiu d'una peça
 # Objectius llunyans → solucions més llargues → millor puntuació
@@ -240,29 +240,32 @@ def generar_puzzle(
 
     ocupades: set[tuple[int, int]] = set(walls)
 
-    # 2. Peces i posicions
-    # Reservem com a mínim 2 caselles lliures per permetre moviment
-    area_total = W * H - len(walls)
-    area_max = int(area_total * OCUPACIO_OBJECTIU)
 
     peces_generades: list[Piece] = []
     posicions_inicials: list[tuple[int, int]] = []
     area_actual = 0
 
     intents = 0
-    while len(peces_generades) < nombre_peces and intents < 300:
+
+    while len(peces_generades) < nombre_peces and intents < 300: #no cal area max ja que el col·locar peça ja gestiona l'espai lliure
+
         intents += 1
 
         forma_coords = _forma_aleatoria_ponderada()
         mida = len(forma_coords)
 
-        # si afegir aquesta peça supera el límit d'ocupació, provem amb una 1x1
-        if area_actual + mida > area_max:
-            forma_coords = [(0, 0)]
 
+        
         pos = _col·locar_peca(forma_coords, W, H, ocupades)
         if pos is None:
-            continue
+            # si no cabe, provar amb domino o monomino
+            for fallback in [[(0,0),(0,1)], [(0,0),(1,0)], [(0,0)]]:
+                pos = _col·locar_peca(fallback, W, H, ocupades)
+                if pos is not None:
+                    forma_coords = fallback
+                    break
+        if pos is None:
+            break
 
         px, py = pos
         peça = Piece.normalized(forma_coords)
@@ -326,6 +329,9 @@ def generar_millor_puzzle(
             resultat = avaluar_puzzle(pz)
         except Exception:
             # grafs buits o puzzles trivials poden fallar a eval
+            continue
+
+        if not resultat["resoluble"]:
             continue
 
         print(f"  Intent {intent:2d}/{MAX_INTENTS}: puntuació {resultat['puntuacio']:.2f} / 5.00")

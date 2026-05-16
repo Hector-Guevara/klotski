@@ -4,7 +4,7 @@ Donat un puzzle, el resol.
 Ús: python3 solve.py <puzzle.json>
 """
  
-from graph import generar_graf, state_key
+#from graph import generar_graf, state_key-----------Con las nuevas implementaciones no usamos estas funciones
 from puzzle import Puzzle, State
 from pathlib import Path
 from logic import possible_moves, apply_move, is_goal
@@ -14,7 +14,7 @@ import json
 from collections import deque
 from typing import Optional
  
-import graph_tool.all as gt  # type: ignore[import-untyped]
+#import graph_tool.all as gt  # type: ignore[import-untyped]-----------Con las nuevas implementaciones no es necesario importar la libreria, no la usamos
  
  
 def _bfs_real(pz: Puzzle) -> Optional[list]:
@@ -71,11 +71,6 @@ def solucio_puzzle(pz: Puzzle, output_path: Path) -> None:
     la distància mínima esperada, però la reconstrucció del camí es fa
     amb un BFS directe sobre estats reals per garantir l'optimalitat.
     """
- 
-    # es genera el graf per verificar la resolubilitat i obtenir els nodes destí
-    g, nodes_desti = generar_graf(pz)
- 
-    assert nodes_desti, "Aquest puzzle no té cap solució"
  
     # BFS directe sobre estats reals: garanteix el camí òptim sense artefactes
     # del graf canònic (on una aresta pot amagar múltiples moviments reals)

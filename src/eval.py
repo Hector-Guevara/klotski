@@ -21,6 +21,7 @@ import graph_tool.all as gt  # type: ignore[import-untyped]
 
 from graph import generar_graf, state_key
 from puzzle import Puzzle
+from math import log 
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ def score_unicitat(num_solucions: int) -> float:
     if num_solucions == 0:
         return 0.0
     # Funció decreixent: 1 solució → 1.0, moltes solucions → proper a 0
-    return 1.0 / num_solucions
+    return 1.0 / log(1 + num_solucions)
 
 
 def score_eficiencia(longitud_optima: int, num_estats: int) -> float:

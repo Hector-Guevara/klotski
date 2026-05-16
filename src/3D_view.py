@@ -37,9 +37,9 @@ def solution_edges(
     state_prop = g.vp["state"]
 
     # Mapa clau canònica → id de vèrtex
-    key_to_id: dict[StateKey, str] = {}
+    key_to_id: dict[str, str] = {}
     for v in g.vertices():
-        key_to_id[state_key(puzzle, state_prop[v])] = str(int(v))
+        key_to_id[state_prop[v]] = str(int(v))
 
     states = replay_moves(puzzle, moves)
     edges: set[tuple[str, str]] = set()
