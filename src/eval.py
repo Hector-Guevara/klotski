@@ -40,9 +40,9 @@ PES_PONTS             = 0.10  # recompensa l'existència de fases (ponts al graf
 # Ajustats empíricament observant puzzles de mostra.
 # ---------------------------------------------------------------------------
 
-LONGITUD_MAX_REF  = 80   # moviments; puzzles de més de 80 es consideren 'perfectes'
+LONGITUD_MAX_REF  = 30   # moviments; puzzles de més de 80 es consideren 'perfectes'
                          # referència: simplicity=31, 2swap=17, klotski=116
-ESTATS_MAX_REF    = 8000 # nodes; referència: klotski i 2swap (2 caselles lliures)
+ESTATS_MAX_REF    = 2000 # nodes; referència: klotski i 2swap (2 caselles lliures)
                          # generen grafs molt densos; 8000 és un llindar realista
 PONTS_MAX_REF     = 10   # número de ponts; més de 10 → puntuació màxima
 
@@ -199,7 +199,7 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
 
 def imprimir_avaluacio(pz: Puzzle, resultat: dict) -> None:
     """Imprimeix per pantalla un resum llegible de l'avaluació."""
-    print(f"Taulell:          {pz.W}×{pz.H}  ({len(pz.pieces)} peces)")
+    print(f"Taulell:          {pz.W}x{pz.H}  ({len(pz.pieces)} peces)")
     print(f"Resoluble:        {'Sí' if resultat['resoluble'] else 'No'}")
     print(f"Estats totals:    {resultat['num_estats']}")
     print(f"Solucions (dest): {resultat['num_solucions']}")
