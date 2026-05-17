@@ -1,39 +1,35 @@
 """
-Donats certs paràmetres, genera un nou puzzle en format .json tenint en compte les mesures d'interès establertes:
-  - Longitud de la solució òptima (puzzles més llargs → més interessants)
-  - Nombre total d'estats accessibles (espai de cerca gran → més complex)
-  - Nombre d'estats finals (menys solucions → més difícil)
-  - Proporció d'estats que formen part del camí òptim (eficiència del camí)
-  - Centralitat de pont: si hi ha colls d'ampolla al graf (fases del puzzle)
+Genera un nou puzzle en format .json en base a un nivell de dificultat.
 
-Ús: python3 generate.py <nombre_peces> <amplada_taulell> <alçada_taulell> <parets/obstacles> <nombre_objectius> <nom_puzzle>
-on:
-    nombre_peces:     enter que designa el nombre de peces a generar (màxim W·H-2)
-    amplada_taulell:  enter que designa l'amplada del taulell (W)
-    alçada_taulell:   enter que designa l'alçada del taulell (H)
-    parets/obstacles: string (si/no), indica si es vol que hi hagi parets
-    nombre_objectius: enter que designa el nombre d'objectius
-    nom_puzzle:       string amb el nom del fitxer (s'afegeix .json automàticament)
+El programa escull automàticament les dimensions del taulell, el nombre de
+peces, la seva mida, les parets i el nombre d'objectius per maximitzar la
+dificultat del nivell demanat.
+
+Ús: python3 generate.py <easy|medium|hard> <nom_puzzle>
+
+Nivells:
+  easy   — taulell petit, poques peces petites, molt espai lliure, 1 objectiu
+  medium — taulell mitjà, peces mixtes, densitat moderada, 1 objectiu
+  hard   — taulell gran, moltes peces grans, taulell molt dens, parets, 1 objectiu
+
+Estratègia anti-bloqueig:
+  - Els paràmetres de cada nivell estan calibrats per garantir que la majoria
+    de puzzles generats siguin resolubles sense necessitar massa intents.
+  - Per a 'hard', les dimensions del taulell es trien aleatòriament dins d'un
+    rang que garanteix prou espai lliure perquè les peces es puguin moure.
+  - Si en MAX_INTENTS intents no es troba cap puzzle resoluble, el programa
+    retorna el millor que hagi trobat (encara que no assoleixi PUNTUACIO_MINIMA).
 """
 
 from __future__ import annotations
 
 import random
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from puzzle import Puzzle, Piece, State
 from eval import avaluar_puzzle, imprimir_avaluacio
-
-# ---------------------------------------------------------------------------
-# Paràmetres de generació
-# ---------------------------------------------------------------------------
-
-MAX_INTENTS    = 100   # intents màxims per trobar un puzzle prou bo
-PUNTUACIO_MINIMA = 1  # puntuació mínima acceptable
-
-# Pesos per mida de peça: afavorim mida 2-3, reduïm mida 4 (difícil de col·locar)
-PESOS_MIDA = {1: 1, 2: 5, 3: 6, 4: 3}
 
 # ---------------------------------------------------------------------------
 # Catàleg de formes: totes les orientacions de poliominós fins a mida 4
@@ -79,22 +75,103 @@ FORMES_CATALEG: list[list[tuple[int, int]]] = [
     [(0, 1), (0, 2), (1, 0), (1, 1)],
 ]
 
-# Formes de fallback ordenades de gran a petit per quan el taulell s'omple
+# Formes de fallback de gran a petit per quan el taulell s'omple
 _FALLBACKS = [
-    [(0, 0), (0, 1)],  # dòmino vertical
-    [(0, 0), (1, 0)],  # dòmino horitzontal
-    [(0, 0)],          # monominó
+    [(0, 0), (0, 1)],
+    [(0, 0), (1, 0)],
+    [(0, 0)],
 ]
 
 
 # ---------------------------------------------------------------------------
-# Funcions auxiliars
+# Configuració dels nivells de dificultat
 # ---------------------------------------------------------------------------
 
-def _forma_aleatoria_ponderada() -> list[tuple[int, int]]:
+@dataclass
+class NivellConfig:
+    """
+    Paràmetres que controlen la generació per a cada nivell de dificultat.
+
+    w_range / h_range: rang de dimensions del taulell (mínim, màxim inclusiu).
+      Es trien aleatòriament dins del rang per afegir varietat.
+
+    ocupacio: fracció màxima de caselles ocupades per peces. Valors alts
+      generen grafs més grans i puzzles més difícils, però redueixen la
+      probabilitat que el puzzle sigui resoluble. Calibrat per nivell.
+
+    pesos_mida: probabilitat relativa de triar peces de mida 1/2/3/4.
+      Hard afavoreix mida 3-4 (peces grans bloquegen més el taulell).
+
+    amb_parets: si es generen obstacles al taulell. Augmenta la dificultat
+      però redueix l'espai disponible; només s'activa a hard.
+
+    nombre_objectius: quants objectius ha de satisfer el jugador.
+
+    puntuacio_minima: llindar mínim d'eval.py per acceptar el puzzle.
+
+    max_intents: intents màxims. Hard necessita més intents perquè
+      la finestra de puzzles resolubles és més estreta.
+
+    percentil_objectiu: quin percentil de posicions més llunyanes s'usa
+      per triar l'objectiu (10 = top 10% = més llunyà = solució més llarga).
+    """
+    w_range:            tuple[int, int]
+    h_range:            tuple[int, int]
+    ocupacio:           float
+    pesos_mida:         dict[int, int]
+    amb_parets:         bool
+    nombre_objectius:   int
+    puntuacio_minima:   float
+    max_intents:        int
+    percentil_objectiu: int  # top N% de posicions més llunyanes
+
+
+NIVELLS: dict[str, NivellConfig] = {
+    "easy": NivellConfig(
+        w_range            = (4, 5),
+        h_range            = (4, 5),
+        ocupacio           = 0.55,   # poc dens → molt espai lliure → fàcil de resoldre
+        pesos_mida         = {1: 5, 2: 4, 3: 2, 4: 1},  # peces petites dominants
+        amb_parets         = False,
+        nombre_objectius   = 1,
+        puntuacio_minima   = 0.8,
+        max_intents        = 40,
+        percentil_objectiu = 50,     # top 50% — objectiu moderadament llunyà
+    ),
+    "medium": NivellConfig(
+        w_range            = (5, 6),
+        h_range            = (4, 5),
+        ocupacio           = 0.70,   # densitat moderada
+        pesos_mida         = {1: 1, 2: 5, 3: 6, 4: 3},  # peces mitjanes dominants
+        amb_parets         = False,
+        nombre_objectius   = 1,
+        puntuacio_minima   = 1.5,
+        max_intents        = 60,
+        percentil_objectiu = 25,     # top 25% — objectiu bastant llunyà
+    ),
+    "hard": NivellConfig(
+        w_range            = (5, 7),
+        h_range            = (5, 6),
+        ocupacio           = 0.72,   # molt dens → espai d'estats enorme
+        pesos_mida         = {1: 0, 2: 2, 3: 5, 4: 6},  # peces grans dominants
+        amb_parets         = True,
+        nombre_objectius   = 1,
+        puntuacio_minima   = 1.5,
+        max_intents        = 60,    # més intents perquè la finestra és estreta
+        percentil_objectiu = 10,     # top 10% — objectiu el més llunyà possible
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Funcions auxiliars (compartides amb l'anterior generate.py)
+# ---------------------------------------------------------------------------
+
+def _forma_ponderada(pesos_mida: dict[int, int]) -> list[tuple[int, int]]:
     """Tria una forma del catàleg ponderada per mida."""
-    pesos = [PESOS_MIDA[len(f)] for f in FORMES_CATALEG]
-    return random.choices(FORMES_CATALEG, weights=pesos, k=1)[0]
+    formes_valides = [f for f in FORMES_CATALEG if pesos_mida.get(len(f), 0) > 0]
+    pesos = [pesos_mida[len(f)] for f in formes_valides]
+    return random.choices(formes_valides, weights=pesos, k=1)[0]
 
 
 def _col_locar_peca(
@@ -103,11 +180,7 @@ def _col_locar_peca(
     H: int,
     ocupades: set[tuple[int, int]],
 ) -> tuple[int, int] | None:
-    """
-    Retorna una posició vàlida aleatòria per col·locar la peça, o None si no hi cap.
-    max_dx és l'offset x màxim de la forma (0-indexat), per tant la darrera
-    posició vàlida de px és W-1-max_dx, i range(W - max_dx) és correcte.
-    """
+    """Retorna una posició vàlida aleatòria per col·locar la peça, o None."""
     max_dx = max(dx for dx, dy in forma)
     max_dy = max(dy for dx, dy in forma)
     candidats = [
@@ -136,15 +209,15 @@ def _generar_objectius(
     W: int,
     H: int,
     nombre_objectius: int,
+    percentil: int,
 ) -> tuple[tuple[int, tuple[int, int]], ...]:
     """
-    Genera objectius maximitzant la dificultat:
-      - Prioritza les peces més grans (menys nodes goal → unicitat alta).
-      - Escull la posició destí del 20% més llunyà en distància Manhattan
-        (millor correlació amb longitud de solució que el terç anterior).
+    Genera objectius prioritzant les peces més grans i les posicions
+    més llunyanes (top `percentil`% en distància Manhattan).
+    Peces més grans → menys nodes goal → unicitat alta.
+    Posicions més llunyanes → solucions més llargues → longitud alta.
     """
     walls_set = set(walls)
-    # peces més grans primer: menys posicions goal → puntuació unicitat més alta
     idx_peces = sorted(range(len(peces)), key=lambda i: len(peces[i].coords), reverse=True)
 
     goals_list = []
@@ -167,7 +240,7 @@ def _generar_objectius(
             continue
 
         opcions.sort(reverse=True)
-        tall = max(1, len(opcions) // 5)  # 20% més llunyà
+        tall = max(1, len(opcions) * percentil // 100)
         _, (gx, gy) = random.choice(opcions[:tall])
         goals_list.append((p_idx, (gx, gy)))
 
@@ -178,35 +251,44 @@ def _generar_objectius(
 # Generació principal del puzzle
 # ---------------------------------------------------------------------------
 
-def generar_puzzle(
-    nombre_peces: int, W: int, H: int, parets: bool, nombre_objectius: int
-) -> Puzzle | None:
+def generar_puzzle(cfg: NivellConfig) -> Puzzle | None:
     """
-    Genera un puzzle aleatori col·locant peces fins a nombre_peces o fins que
-    el taulell estigui ple (deixant sempre 2 caselles lliures per permetre moviment).
-    Si una peça gran no hi cap, prova amb peces progressivament més petites
-    per evitar que el generador es quedi encallat.
+    Genera un puzzle aleatori seguint la configuració del nivell donat.
+    Les dimensions del taulell es trien aleatòriament dins del rang del nivell
+    per afegir varietat i evitar que tots els puzzles tinguin la mateixa forma.
     """
-    # 1. Parets
+    # 1. Dimensions aleatòries dins del rang del nivell
+    W = random.randint(*cfg.w_range)
+    H = random.randint(*cfg.h_range)
+
+    # 2. Parets
     walls: tuple[tuple[int, int], ...] = ()
-    if parets:
-        n_walls = max(1, (W * H) // 10)
+    if cfg.amb_parets:
+        # nombre de parets proporcional a la mida però limitat per no bloquejar
+        n_walls = max(1, (W * H) // 12)
         walls = _generar_parets(W, H, n_walls)
 
     ocupades: set[tuple[int, int]] = set(walls)
-    area_max = W * H - len(walls) - 2  # mínim 2 caselles lliures
+    area_total = W * H - len(walls)
+    # reservem mínim 3 caselles lliures a hard per garantir resolubilitat
+    caselles_lliures_min = 3 if cfg.amb_parets else 2
+    area_max = int(area_total * cfg.ocupacio) - caselles_lliures_min
 
+    if area_max <= 0:
+        return None
+
+    # 3. Peces: omplim fins al límit d'ocupació del nivell
     peces_generades: list[Piece] = []
     posicions_inicials: list[tuple[int, int]] = []
     area_actual = 0
     intents = 0
 
-    while len(peces_generades) < nombre_peces and intents < 300:
+    while area_actual < area_max and intents < 400:
         intents += 1
 
-        forma_coords = _forma_aleatoria_ponderada()
+        forma_coords = _forma_ponderada(cfg.pesos_mida)
 
-        # si la forma triada no hi cap, provem fallbacks progressivament més petits
+        # fallback progressiu si la forma no hi cap
         pos = None
         for candidata in [forma_coords] + _FALLBACKS:
             if area_actual + len(candidata) > area_max:
@@ -217,7 +299,7 @@ def generar_puzzle(
                 break
 
         if pos is None:
-            break  # taulell ple, no hi cap cap peça més
+            break  # taulell ple
 
         px, py = pos
         peça = Piece.normalized(forma_coords)
@@ -230,14 +312,15 @@ def generar_puzzle(
     if not peces_generades:
         return None
 
-    # 2. Ordre canònic obligatori per a la classe Puzzle
+    # 4. Ordre canònic obligatori per a la classe Puzzle
     pairs = sorted(zip(peces_generades, posicions_inicials))
     peces_final = tuple(p for p, _ in pairs)
     posicions_final = tuple(pos for _, pos in pairs)
 
-    # 3. Objectius
+    # 5. Objectius
     goals = _generar_objectius(
-        peces_final, posicions_final, walls, W, H, nombre_objectius
+        peces_final, posicions_final, walls,
+        W, H, cfg.nombre_objectius, cfg.percentil_objectiu,
     )
     if not goals:
         return None
@@ -258,18 +341,17 @@ def generar_puzzle(
 # Selecció del millor puzzle entre múltiples intents
 # ---------------------------------------------------------------------------
 
-def generar_millor_puzzle(
-    nombre_peces: int, W: int, H: int, parets: bool, nombre_objectius: int
-) -> tuple[Puzzle, dict]:
+def generar_millor_puzzle(cfg: NivellConfig, nivell: str) -> tuple[Puzzle, dict]:
     """
-    Genera fins a MAX_INTENTS puzzles i retorna el millor segons eval.py.
-    Descarta explícitament puzzles irresolubles.
+    Genera fins a cfg.max_intents puzzles i retorna el millor segons eval.py.
+    Si cap supera cfg.puntuacio_minima, retorna el millor trobat igualment
+    per evitar errors de producció — sempre hi haurà un resultat.
     """
     millor_puzzle: Puzzle | None = None
     millor_resultat: dict = {"puntuacio": -1.0}
 
-    for intent in range(1, MAX_INTENTS + 1):
-        pz = generar_puzzle(nombre_peces, W, H, parets, nombre_objectius)
+    for intent in range(1, cfg.max_intents + 1):
+        pz = generar_puzzle(cfg)
         if pz is None:
             continue
 
@@ -281,19 +363,27 @@ def generar_millor_puzzle(
         if not resultat["resoluble"]:
             continue
 
-        print(f"  Intent {intent:2d}/{MAX_INTENTS}: puntuació {resultat['puntuacio']:.2f} / 5.00")
+        print(f"  Intent {intent:3d}/{cfg.max_intents}: "
+              f"{pz.W}x{pz.H} {len(pz.pieces)} peces — "
+              f"puntuació {resultat['puntuacio']:.2f} / 5.00")
 
         if resultat["puntuacio"] > millor_resultat["puntuacio"]:
             millor_puzzle = pz
             millor_resultat = resultat
 
-        if millor_resultat["puntuacio"] >= PUNTUACIO_MINIMA:
-            print(f"  ✓ Puntuació acceptable trobada a l'intent {intent}.")
+        if millor_resultat["puntuacio"] >= cfg.puntuacio_minima:
+            print(f"  ✓ Puntuació {cfg.puntuacio_minima} assolida a l'intent {intent}.")
             break
 
+    # si no s'ha trobat cap puzzle resoluble, error real
     if millor_puzzle is None:
-        print("Error: no s'ha pogut generar cap puzzle vàlid.")
+        print(f"Error: no s'ha pogut generar cap puzzle '{nivell}' resoluble.")
         sys.exit(1)
+
+    # si no s'ha assolit la puntuació mínima, avisem però retornem el millor
+    if millor_resultat["puntuacio"] < cfg.puntuacio_minima:
+        print(f"  ⚠ No s'ha assolit la puntuació mínima ({cfg.puntuacio_minima}). "
+              f"Es retorna el millor trobat ({millor_resultat['puntuacio']:.2f}).")
 
     return millor_puzzle, millor_resultat
 
@@ -303,23 +393,24 @@ def generar_millor_puzzle(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    if len(sys.argv) < 7:
-        print(
-            f"Ús: python3 {sys.argv[0]} "
-            "<nombre_peces> <amplada_taulell> <alçada_taulell> "
-            "<parets/obstacles> <nombre_objectius> <nom_puzzle>"
-        )
+    if len(sys.argv) < 3:
+        print(f"Ús: python3 {sys.argv[0]} <easy|medium|hard> <nom_puzzle>")
         sys.exit(1)
 
-    n_peces     = int(sys.argv[1])
-    W           = int(sys.argv[2])
-    H           = int(sys.argv[3])
-    amb_parets  = sys.argv[4].lower() == "si"
-    n_objectius = int(sys.argv[5])
-    nom_arxiu   = sys.argv[6]
+    nivell   = sys.argv[1].lower()
+    nom_arxiu = sys.argv[2]
 
-    print(f"Generant puzzle '{nom_arxiu}' ({W}×{H}, {n_peces} peces)...")
-    millor, resultat = generar_millor_puzzle(n_peces, W, H, amb_parets, n_objectius)
+    if nivell not in NIVELLS:
+        print(f"Error: nivell '{nivell}' desconegut. Usa 'easy', 'medium' o 'hard'.")
+        sys.exit(1)
+
+    cfg = NIVELLS[nivell]
+    print(f"Generant puzzle '{nom_arxiu}' [nivell: {nivell.upper()}]...")
+    print(f"  Taulell: {cfg.w_range[0]}-{cfg.w_range[1]}×{cfg.h_range[0]}-{cfg.h_range[1]}, "
+          f"ocupació fins al {int(cfg.ocupacio*100)}%, "
+          f"parets: {'sí' if cfg.amb_parets else 'no'}")
+
+    millor, resultat = generar_millor_puzzle(cfg, nivell)
 
     path = Path(f"{nom_arxiu}.json")
     path.write_text(millor.to_json(indent=4))
