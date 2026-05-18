@@ -9,9 +9,9 @@ El flux és el següent:
 Ús:
     python3 upload.py <puzzle.json> <token>
 
-    comando en el shell de python para usarlo:
+    comanda en el shell de python per utilitzar-lo:
 
-    python src/upload.py puzzles/mi_puzzle.json mi_token_secreto
+    python src/upload.py puzzles/mi_puzzle.json token
  
 El servidor afegeix el puzzle a la llista. Si ja hi ha més de 200 puzzles,
 substitueix a l'atzar un dels puzzles amb valoració més baixa.

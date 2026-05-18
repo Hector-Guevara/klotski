@@ -1,5 +1,5 @@
 """
-Avalua un puzzle del repositori i n'envia la valoració (0–5 estrelles reals com a enters).
+Avalua un puzzle del repositori i n'envia la valoració (0-5 estrelles reals com a enters).
  
 El flux és el següent:
   1. Descarrega el puzzle per ID des del repositori.

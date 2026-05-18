@@ -15,11 +15,16 @@ import graph_tool.all as gt  # type: ignore[import-untyped]
 
 StateKey = str
 
-def state_key(puzzle: Puzzle, estat: State) -> StateKey:
+def state_key(puzzle: Puzzle, estat: State | StateKey) -> StateKey:
     """
-    Donat un puzzle, i l'estat d'aquest taulell del puzzle, genera una clau única, en format
-    de StateKey per dotar d'una identificació única a cada estat del taulell.
+    Donat un puzzle, i l'estat d'aquest taulell del puzzle (o una clau ja generada), 
+    genera una clau única, en format de StateKey per dotar d'una identificació única a cada estat del taulell.
     """
+    # Millora: Si l'estat ja és una clau canònica (str), la retornem directament.
+    # Això soluciona la compatibilitat quan es llegeix des de visualitzadors com 3D_view.py
+    if isinstance(estat, str):
+        return estat
+
     # inicialització de la variable
     groups: dict[tuple[tuple[int, int], ...], list[tuple[int, int]]] = {}
     
