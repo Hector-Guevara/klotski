@@ -1,8 +1,7 @@
 Lista de errores a corregir:
-- eval.py longitud óptima no es correcto
 
-- solve.py funciona bien, pero hay puzzles con los que es demasiado lento
+- generate.py hay que pulirlo, para que genere los puzzles interesantes y puedan pasar el filtro, un filtro más exigente
 
-- generate.py hay que pulirlo, para que genere los puzzles interesantes y puedan pasar el filtro
+- generate.py con diversos objetivos
 
-- Falta integrar solve.py con eval.py, para que eval.py no vuelva a intentar buscar el camino más corto
+- Falta optimizar graph.py, para que sea más rápido

@@ -1,5 +1,6 @@
 """
 Donat un puzzle, genera el graf resultant en un fitxer .graphml
+de forma ultra ràpida mitjançant add_edge_list.
 
 Ús: python3 graph.py <puzzle.json>
 """
@@ -10,6 +11,7 @@ import sys
 from pathlib import Path
 from puzzle import Puzzle, State
 from logic import possible_moves, apply_move, is_goal
+from solve import canonical_key  # Aprofitem la clau ràpida que ja tenim!
 
 import graph_tool.all as gt  # type: ignore[import-untyped]
 
@@ -17,55 +19,73 @@ StateKey = str
 
 def state_key(puzzle: Puzzle, estat: State | StateKey) -> StateKey:
     """
-    Donat un puzzle, i l'estat d'aquest taulell del puzzle (o una clau ja generada), 
-    genera una clau única, en format de StateKey per dotar d'una identificació única a cada estat del taulell.
+    Manté la compatibilitat per a funcions externes que esperen un string,
+    però utilitzant la lògica ràpida de canonical_key.
     """
-    # Millora: Si l'estat ja és una clau canònica (str), la retornem directament.
-    # Això soluciona la compatibilitat quan es llegeix des de visualitzadors com 3D_view.py
     if isinstance(estat, str):
         return estat
+    return str(canonical_key(puzzle, estat))
 
-    # inicialització de la variable
-    groups: dict[tuple[tuple[int, int], ...], list[tuple[int, int]]] = {}
-    
-    # es guarda la posició de cada peça segons la forma
-    for i, piece in enumerate(puzzle.pieces):
-
-        shape_key = tuple(tuple(c) for c in piece.coords)
-
-        if shape_key not in groups:
-            groups[shape_key] = []
-            
-        # es guarden les posicions de la peça
-        groups[shape_key].append((tuple(estat.positions[i])))
-        
-    canonical_parts = []
-    
-    # s'itera sobre les peces en ordre
-    for shape in sorted(groups.keys()):
-        # s'ordenen les peces per posició
-        sorted_positions = tuple(sorted(groups[shape]))
-        canonical_parts.append((shape, sorted_positions))
-        
-    # es retorna com a text
-    return str(tuple(canonical_parts))
 
 def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
     """
-    Donat un puzzle, en retorna el seu graf associat, que defineix la resolució
-    d'aquest puzzle i la llista amb tots els nodes que són part de la solució. 
-    Els nodes del graf són els possibles estats i posicions de les peces,
-    si una aresta els uneix, implica que es pot anar d'un estat a un altre en un sol moviment.
+    Genera el graf del puzzle processant la cerca purament en Python
+    i construint el graf de graph-tool en bloc per a màxima velocitat.
     """
-        
-    # 1. Creació del graf
-    g = gt.Graph(directed=True)
+    # 1. Exploració purament en Python (molt més ràpid que creuar a C++ a cada pas)
+    start_state = puzzle.start
+    start_key = canonical_key(puzzle, start_state)
+    
+    # Mapeig de clau -> índex enter (necessari per a add_edge_list)
+    visited_idx: dict[tuple, int] = {start_key: 0}
+    
+    # Dades per construir els vèrtexs
+    state_strings: list[str] = [str(start_key)]
+    is_goal_list: list[bool] = [is_goal(puzzle, start_state)]
+    is_start_list: list[bool] = [True]
+    
+    edges: list[tuple[int, int]] = []
+    stack = [start_state]
 
-    # 2. Definició de propietats exactes segons 2swapog.graphml
+    while stack:
+        estat_actual = stack.pop()
+        current_key = canonical_key(puzzle, estat_actual)
+        curr_idx = visited_idx[current_key]
+
+        for move in possible_moves(puzzle, estat_actual):
+            next_state = apply_move(puzzle, estat_actual, move)
+            next_key = canonical_key(puzzle, next_state)
+
+            if next_key not in visited_idx:
+                nou_idx = len(visited_idx)
+                visited_idx[next_key] = nou_idx
+                
+                state_strings.append(str(next_key))
+                is_goal_list.append(is_goal(puzzle, next_state))
+                is_start_list.append(False)
+                
+                stack.append(next_state)
+            
+            edges.append((curr_idx, visited_idx[next_key]))
+
+    # 2. Construcció del graf en bloc (graph-tool vola amb això)
+    g = gt.Graph(directed=True)
+    g.add_vertex(len(visited_idx))
+    g.add_edge_list(edges)
+
+    # 3. Assignació de propietats en bloc
     v_is_goal = g.new_vertex_property("bool")
     v_is_start = g.new_vertex_property("bool")
-    v_state = g.new_vertex_property("object") 
+    v_state = g.new_vertex_property("string") 
     
+    # Assignem les llistes directament a les propietats
+    v_is_goal.a = is_goal_list
+    v_is_start.a = is_start_list
+    
+    # Les propietats d'objecte (string) s'han d'iterar, però ara només ho fem un cop
+    for i, s_str in enumerate(state_strings):
+        v_state[g.vertex(i)] = s_str
+
     g.vp["is_goal"] = v_is_goal
     g.vp["is_start"] = v_is_start
     g.vp["state"] = v_state
@@ -73,42 +93,8 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
     g.graph_properties["puzzle"] = g.new_graph_property("string")
     g.graph_properties["puzzle"] = puzzle.to_json()
 
-    visited: dict[StateKey, gt.Vertex] = {}
-    nodes_desti: list[gt.Vertex] = []
-
-    start_state = puzzle.start
-    start_key = state_key(puzzle, start_state)
-    
-    v_inicial = g.add_vertex()
-    g.vp["state"][v_inicial] = start_key
-    g.vp["is_start"][v_inicial] = True
-    g.vp["is_goal"][v_inicial] = is_goal(puzzle, start_state)
-    visited[start_key] = v_inicial
-
-    stack = [start_state]
-
-    while stack:
-        estat_actual = stack.pop()
-        current_key = state_key(puzzle, estat_actual)
-        v_actual = visited[current_key]
-
-        if is_goal(puzzle, estat_actual) and v_actual not in nodes_desti:
-            g.vp["is_goal"][v_actual] = True
-            nodes_desti.append(v_actual)
-
-        for move in possible_moves(puzzle, estat_actual):
-            next_state = apply_move(puzzle, estat_actual, move)
-            next_key = state_key(puzzle, next_state)
-
-            if next_key not in visited:
-                v_next = g.add_vertex()
-                g.vp["state"][v_next] = next_key
-                g.vp["is_start"][v_next] = False
-                g.vp["is_goal"][v_next] = is_goal(puzzle, next_state)
-                visited[next_key] = v_next
-                stack.append(next_state)
-            
-            g.add_edge(v_actual, visited[next_key])
+    # Localitzem els nodes destí per retornar-los
+    nodes_desti = [g.vertex(i) for i, is_g in enumerate(is_goal_list) if is_g]
     
     return g, nodes_desti
 
@@ -123,4 +109,4 @@ if __name__ == "__main__":
 
     output_filename = sys.argv[1].replace('.json', '.graphml')
     g.save(output_filename)
-    print(f"Graf guardat a {output_filename}")
+    print(f"Graf guardat a {output_filename} (Nodes: {g.num_vertices()}, Arestes: {g.num_edges()})")

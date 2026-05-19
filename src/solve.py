@@ -1,84 +1,119 @@
 """
-Donat un puzzle, el resol.
+Donat un puzzle, el resol de forma òptima i extremadament ràpida.
  
 Ús: python3 solve.py <puzzle.json>
 """
  
-#from graph import generar_graf, state_key-----------Con las nuevas implementaciones no usamos estas funciones
 from puzzle import Puzzle, State
 from pathlib import Path
 from logic import possible_moves, apply_move, is_goal
  
 import sys
 import json
-from collections import deque
+import heapq
+import itertools
 from typing import Optional
  
-#import graph_tool.all as gt  # type: ignore[import-untyped]-----------Con las nuevas implementaciones no es necesario importar la libreria, no la usamos
  
- 
-def _bfs_real(pz: Puzzle) -> Optional[list]:
+def heuristica(pz: Puzzle, estat: State) -> int:
     """
-    BFS directe sobre estats reals del puzzle.
-    Retorna la llista de moviments [peça, direcció, dist] òptima,
-    o None si el puzzle no té solució.
+    Calcula la distància Manhattan mínima de les peces objectiu 
+    a les seves posicions finals.
+    """
+    h = 0
+    for p_idx, pos_final in pz.goals:
+        ex, ey = estat.positions[p_idx]
+        gx, gy = pos_final
+        h += abs(ex - gx) + abs(ey - gy)
+    return h
  
-    Aquest enfocament evita el problema de la versió anterior, on
-    la reconstrucció del camí a partir del graf canònic podia introduir
-    moviments innecessaris: una aresta del graf canònic pot correspondre
-    a múltiples moviments reals, i llegir g.ep["move"] directament
-    només en recuperava un, que no necessàriament era el més curt.
+
+def canonical_key(pz: Puzzle, estat: State) -> tuple:
+    """
+    Genera una clau canònica per a l'estat que agrupa les peces idèntiques
+    que NO són objectiu. Això redueix l'espai de cerca dràsticament
+    (evitant l'explosió combinatòria del Klotski) però manté la identitat 
+    exacta de les peces objectiu per garantir l'optimalitat.
+    """
+    goal_indices = {g[0] for g in pz.goals}
+    groups = {}
+    
+    for i, piece in enumerate(pz.pieces):
+        if i in goal_indices:
+            # Les peces objectiu es marquen de forma única perquè la seva 
+            # identitat importa per resoldre el puzzle.
+            shape_key = ("GOAL", i)
+        else:
+            # Les peces normals s'agrupen per la seva forma.
+            # No ens importa QUINA peça de 1x1 movem, només on estan.
+            shape_key = ("NORMAL", piece.coords)
+        
+        if shape_key not in groups:
+            groups[shape_key] = []
+        groups[shape_key].append(estat.positions[i])
+        
+    # Ordenem les posicions de cada grup i construïm la clau
+    canonical_parts = []
+    for shape in sorted(groups.keys(), key=str):
+        canonical_parts.append((shape, tuple(sorted(groups[shape]))))
+        
+    return tuple(canonical_parts)
+ 
+
+def _a_star_real(pz: Puzzle) -> Optional[list]:
+    """
+    Cerca A* (A-Estrella) sobre els estats reals utilitzant la clau
+    canònica híbrida per a la memòria de visitats.
     """
     estat_inicial = pz.start
  
-    # cua de BFS: cada element és (estat_actual, camí_de_moviments_fins_aquí)
-    cua: deque[tuple[State, list]] = deque()
-    cua.append((estat_inicial, []))
+    if is_goal(pz, estat_inicial):
+        return []
  
-    # conjunt de posicions visitades per evitar cicles
-    visitats: set[tuple] = set()
-    visitats.add(tuple(tuple(p) for p in estat_inicial.positions))
+    cua = []
+    counter = itertools.count() 
+    
+    g_score = 0
+    h_score = heuristica(pz, estat_inicial)
+    
+    heapq.heappush(cua, (g_score + h_score, next(counter), g_score, estat_inicial, []))
+ 
+    # Utilitzem la clau canònica híbrida per a guardar les distàncies
+    clau_inicial = canonical_key(pz, estat_inicial)
+    distancies = {clau_inicial: 0}
  
     while cua:
-        estat, cami = cua.popleft()
+        f, _, g, estat, cami = heapq.heappop(cua)
  
-        # si hem arribat a un estat final, retornem el camí
         if is_goal(pz, estat):
             return cami
+            
+        clau_actual = canonical_key(pz, estat)
+        if g > distancies.get(clau_actual, float('inf')):
+            continue
  
-        # expandim tots els moviments possibles d'un sol pas
         for move in possible_moves(pz, estat):
             nou_estat = apply_move(pz, estat, move)
-            clau = tuple(tuple(p) for p in nou_estat.positions)
+            nou_g = g + 1
+            
+            # Canonicalitzem l'estat fill
+            pos_key = canonical_key(pz, nou_estat)
+            
+            if nou_g < distancies.get(pos_key, float('inf')):
+                distancies[pos_key] = nou_g
+                nou_f = nou_g + heuristica(pz, nou_estat)
+                
+                p_idx, direction, dist = move
+                nou_cami = cami + [[p_idx, direction, dist]]
+                heapq.heappush(cua, (nou_f, next(counter), nou_g, nou_estat, nou_cami))
  
-            if clau in visitats:
-                continue
- 
-            visitats.add(clau)
-            p_idx, direction, dist = move
-            cua.append((nou_estat, cami + [[p_idx, direction, dist]]))
- 
-    # si la cua s'esgota sense trobar solució
     return None
  
  
 def solucio_puzzle(pz: Puzzle, output_path: Path) -> None:
-    """
-    Donat un puzzle pz, genera un arxiu .sol.json amb la seqüència òptima
-    de moviments per resoldre'l.
+    solucio_final = _a_star_real(pz)
+    assert solucio_final is not None, "El puzzle és resoluble però l'A* no ha trobat solució"
  
-    Fa servir el graf per verificar que el puzzle és resoluble i obtenir
-    la distància mínima esperada, però la reconstrucció del camí es fa
-    amb un BFS directe sobre estats reals per garantir l'optimalitat.
-    """
- 
-    # BFS directe sobre estats reals: garanteix el camí òptim sense artefactes
-    # del graf canònic (on una aresta pot amagar múltiples moviments reals)
-    solucio_final = _bfs_real(pz)
- 
-    assert solucio_final is not None, "El puzzle és resoluble però el BFS no ha trobat solució"
- 
-    # es guarda el fitxer json
     with open(output_path, 'w') as f:
         json.dump(solucio_final, f)
  

@@ -19,9 +19,10 @@ from pathlib import Path
 
 import graph_tool.all as gt  # type: ignore[import-untyped]
 
-from graph import generar_graf, state_key
+from graph import generar_graf
 from puzzle import Puzzle
 from math import log 
+from solve import _a_star_real
 
 
 # ---------------------------------------------------------------------------
@@ -53,68 +54,35 @@ def normalitzar(valor: float, maxim: float) -> float:
 
 
 def score_longitud(longitud_optima: int) -> float:
-    """
-    Mètrica 1 — Longitud de la solució òptima.
-    Un puzzle amb una solució més llarga és, en general, més difícil i interessant.
-    """
+    """Mètrica 1 — Longitud de la solució òptima."""
     return normalitzar(longitud_optima, LONGITUD_MAX_REF)
 
 
 def score_espai(num_estats: int) -> float:
-    """
-    Mètrica 2 — Mida de l'espai d'estats accessibles.
-    Un graf gran implica que hi ha moltes configuracions possibles, cosa que
-    incrementa la dificultat per a un jugador humà.
-    """
+    """Mètrica 2 — Mida de l'espai d'estats accessibles."""
     return normalitzar(num_estats, ESTATS_MAX_REF)
 
 
 def score_unicitat(num_solucions: int) -> float:
-    """
-    Mètrica 3 — Unicitat de la solució.
-    Menys estats finals → el jugador ha de trobar un camí molt concret.
-    Penalitzem puzzles amb moltes solucions perquè solen ser massa fàcils.
-    Si no hi ha solució (num_solucions == 0) la puntuació és 0.
-    """
+    """Mètrica 3 — Unicitat de la solució."""
     if num_solucions == 0:
         return 0.0
-    # Funció decreixent: 1 solució → 1.0, moltes solucions → proper a 0
     return 1.0 / log(1 + num_solucions)
 
 
 def score_eficiencia(longitud_optima: int, num_estats: int) -> float:
-    """
-    Mètrica 4 — Eficiència del camí òptim.
-    Mesura quina fracció de l'espai d'estats és necessari recórrer per arribar
-    a la solució. Un camí curt en un espai gran → el puzzle té molta
-    'trampa' i és especialment enganyós i interessant.
-    """
+    """Mètrica 4 — Eficiència del camí òptim."""
     if num_estats == 0:
         return 0.0
-    # Ratio: si el camí és curt respecte al total d'estats, el puzzle és enganyós
     ratio = longitud_optima / num_estats
-    # Normalitzem: volem premiar puzzles on el ratio és baix (camí curt, espai gran)
-    # usem 1 - ratio per invertir, saturat a [0, 1]
     return max(0.0, 1.0 - ratio)
 
 
 def score_ponts(g: gt.Graph) -> float:
-    """
-    Mètrica 5 — Presència de ponts al graf no dirigit subjacent.
-    Un pont és una aresta la eliminació de la qual desconnecta el graf.
-    La seva presència indica 'fases' al puzzle: zones ben connectades unides
-    per passos únics (colls d'ampolla), cosa que augmenta la dificultat.
-    """
-    # Treballem sobre el graf no dirigit per trobar ponts globalment
+    """Mètrica 5 — Presència de ponts al graf no dirigit subjacent."""
     g_no_dir = gt.Graph(g, directed=False)
-
-    # graph-tool ofereix label_biconnected_components, que ens permet
-    # identificar les arestes que són ponts (components de mida 1)
     comp, arestes_pont, _ = gt.label_biconnected_components(g_no_dir)
-
-    # Comptem quantes arestes estan marcades com a pont
     num_ponts = int(arestes_pont.a.sum())
-
     return normalitzar(num_ponts, PONTS_MAX_REF)
 
 
@@ -127,15 +95,17 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
     Donat un puzzle, en genera el graf i calcula totes les mètriques.
     Retorna un diccionari amb les puntuacions parcials i la final (0.0-5.0).
     """
-
-    # es genera el graf complet del puzzle i els nodes destí (estats finals)
+    # El graf se sigue generando porque aporta las métricas de tamaño, soluciones y puentes
     g, nodes_desti = generar_graf(pz)
 
     num_estats    = g.num_vertices()
     num_solucions = len(nodes_desti)
 
-    # si el puzzle no té solució, retornem puntuació zero directament
-    if num_solucions == 0:
+    # llamamos directamente a tu algoritmo A* híbrido ultra rápido y preciso.
+    cami_optim = _a_star_real(pz)
+
+    # Si el A* no encuentra camino, el puzzle no es resoluble
+    if cami_optim is None:
         return {
             "resoluble":        False,
             "num_estats":       num_estats,
@@ -151,27 +121,16 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
             "puntuacio": 0.0,
         }
 
-    # es localitza el node inicial al graf per fer BFS
-    clau_inicial  = state_key(pz, pz.start)
-    node_inicial  = gt.find_vertex(g, g.vp["state"], clau_inicial)[0]
+    longitud_optima = len(cami_optim)
 
-    # es busca el camí mínim cap a qualsevol dels nodes destí
-    longitud_minima = float("inf")
-    for desti in nodes_desti:
-        _, arestes = gt.shortest_path(g, node_inicial, desti)
-        if len(arestes) < longitud_minima:
-            longitud_minima = len(arestes)
-
-    longitud_optima = int(longitud_minima)
-
-    # es calculen totes les mètriques parcials
+    # Es calculen totes les mètriques parcials amb la longitud exacta
     s_longitud  = score_longitud(longitud_optima)
     s_espai     = score_espai(num_estats)
     s_unicitat  = score_unicitat(num_solucions)
     s_eficiencia = score_eficiencia(longitud_optima, num_estats)
     s_ponts     = score_ponts(g)
 
-    # puntuació ponderada final, escalada a [0, 5]
+    # Puntuació ponderada final, escalada a [0, 5]
     puntuacio_norm = (
         PES_LONGITUD_SOLUCIO  * s_longitud  +
         PES_ESPAI_ESTATS      * s_espai     +
