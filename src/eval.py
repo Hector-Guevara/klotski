@@ -156,12 +156,9 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
     node_inicial  = gt.find_vertex(g, g.vp["state"], clau_inicial)[0]
 
     # es busca el camí mínim cap a qualsevol dels nodes destí
-    longitud_minima = float("inf")
-    for desti in nodes_desti:
-        _, arestes = gt.shortest_path(g, node_inicial, desti)
-        if len(arestes) < longitud_minima:
-            longitud_minima = len(arestes)
-
+    distancies = gt.shortest_distance(g, source=node_inicial)
+    longitud_minima = min(int(distancies[d]) for d in nodes_desti)
+    
     longitud_optima = int(longitud_minima)
 
     # es calculen totes les mètriques parcials

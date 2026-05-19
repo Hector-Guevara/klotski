@@ -85,12 +85,12 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
     g.vp["is_goal"][v_inicial] = is_goal(puzzle, start_state)
     visited[start_key] = v_inicial
 
-    stack = [start_state]
+    stack = [(start_state, start_key)]
 
     while stack:
-        estat_actual = stack.pop()
-        current_key = state_key(puzzle, estat_actual)
+        estat_actual, current_key = stack.pop()
         v_actual = visited[current_key]
+
 
         if is_goal(puzzle, estat_actual) and v_actual not in nodes_desti:
             g.vp["is_goal"][v_actual] = True
@@ -106,7 +106,7 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
                 g.vp["is_start"][v_next] = False
                 g.vp["is_goal"][v_next] = is_goal(puzzle, next_state)
                 visited[next_key] = v_next
-                stack.append(next_state)
+                stack.append((next_state, next_key))
             
             g.add_edge(v_actual, visited[next_key])
     
