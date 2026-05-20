@@ -128,3 +128,31 @@ def replay_moves(puzzle: Puzzle, moves: list[Move]) -> list[State]:
 def is_goal(puzzle: Puzzle, state: State) -> bool:
     """Comprova si l'estat actual satisfà tots els objectius."""
     return all(state.positions[i] == pos for i, pos in puzzle.goals)
+
+
+
+MOVE_DELTA = {
+    "N": (0, -1),
+    "S": (0, 1),
+    "E": (1, 0),
+    "W": (-1, 0),
+}
+
+
+def move_piece(
+    puzzle: Puzzle,
+    state: State,
+    move: tuple[int, str],
+) -> State:
+
+    piece_idx, direction = move
+
+    dx, dy = MOVE_DELTA[direction]
+
+    pos = list(state.positions)
+
+    px, py = pos[piece_idx]
+
+    pos[piece_idx] = (px + dx, py + dy)
+
+    return State(tuple(pos))

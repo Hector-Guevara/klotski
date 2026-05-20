@@ -30,7 +30,7 @@ from pathlib import Path
 
 from puzzle import Puzzle, Piece, State
 from eval import avaluar_puzzle, imprimir_avaluacio
-from logic import possible_moves
+from logic import possible_moves, move_piece
 
 # ---------------------------------------------------------------------------
 # Catàleg de formes: totes les orientacions de poliominós fins a mida 4
@@ -83,7 +83,6 @@ _FALLBACKS = [
     [(0, 0)],
 ]
 
-
 # ---------------------------------------------------------------------------
 # Configuració dels nivells de dificultat
 # ---------------------------------------------------------------------------
@@ -99,6 +98,8 @@ class NivellConfig:
     puntuacio_minima:   float
     max_intents:        int
     percentil_objectiu: int
+    scramble_steps:     int
+
 
 
 NIVELLS: dict[str, NivellConfig] = {
@@ -112,6 +113,7 @@ NIVELLS: dict[str, NivellConfig] = {
         puntuacio_minima   = 0.8,
         max_intents        = 40,
         percentil_objectiu = 50,
+        scramble_steps     = 40,
     ),
     "medium": NivellConfig(
         w_range            = (5, 6),
@@ -123,6 +125,7 @@ NIVELLS: dict[str, NivellConfig] = {
         puntuacio_minima   = 1.5,
         max_intents        = 60,
         percentil_objectiu = 25,
+        scramble_steps     = 120,
     ),
     "hard": NivellConfig(
         w_range            = (5, 6),
@@ -134,6 +137,7 @@ NIVELLS: dict[str, NivellConfig] = {
         puntuacio_minima   = 3.5,
         max_intents        = 100,
         percentil_objectiu = 10,
+        scramble_steps     = 400,
     ),
 }
 
@@ -158,8 +162,8 @@ def _col_locar_peca(
     max_dy = max(dy for dx, dy in forma)
     candidats = [
         (px, py)
-        for px in range(W - max_dx)
-        for py in range(H - max_dy)
+        for px in range(W - max_dx + 1)
+        for py in range(H - max_dy + 1)
         if all((px + dx, py + dy) not in ocupades for dx, dy in forma)
     ]
     return random.choice(candidats) if candidats else None
@@ -174,43 +178,115 @@ def _generar_parets(W: int, H: int, n_walls: int) -> tuple[tuple[int, int], ...]
     return tuple(sorted(candidates[:n_walls]))
 
 
-def _generar_objectius(
-    peces: tuple[Piece, ...],
-    posicions: tuple[tuple[int, int], ...],
-    walls: tuple[tuple[int, int], ...],
-    W: int,
-    H: int,
-    nombre_objectius: int,
-    percentil: int,
-) -> tuple[tuple[int, tuple[int, int]], ...]:
-    walls_set = set(walls)
-    idx_peces = sorted(range(len(peces)), key=lambda i: len(peces[i].coords), reverse=True)
 
-    goals_list = []
-    for p_idx in idx_peces[:nombre_objectius]:
-        peça = peces[p_idx]
-        pos_actual = posicions[p_idx]
-        max_dx = max(dx for dx, dy in peça.coords)
-        max_dy = max(dy for dx, dy in peça.coords)
+DIR_OPPOSITE = {
+    "N": "S",
+    "S": "N",
+    "E": "W",
+    "W": "E",
+}
 
-        opcions = []
-        for gx in range(W - max_dx):
-            for gy in range(H - max_dy):
-                if (gx, gy) == pos_actual:
-                    continue
-                if all((gx + dx, gy + dy) not in walls_set for dx, dy in peça.coords):
-                    dist = abs(gx - pos_actual[0]) + abs(gy - pos_actual[1])
-                    opcions.append((dist, (gx, gy)))
 
-        if not opcions:
+def _scramble_state(
+    puzzle: Puzzle,
+    goal_state: State,
+    passos: int,
+) -> State:
+
+    current = goal_state
+    last_move = None
+
+    visitats: dict[State, int] = {current: 0}
+
+    millor = current
+    millor_dist = 0
+
+    for _ in range(passos):
+
+        prev = current
+        movs = possible_moves(puzzle, current)
+
+        if last_move is not None:
+            inv_piece, inv_dir = last_move
+            movs = [
+                m for m in movs
+                if not (
+                    m[0] == inv_piece and
+                    m[1] == DIR_OPPOSITE[inv_dir]
+                )
+            ]
+
+        if not movs:
+            break
+
+        movs_no_visitats = [
+            m for m in movs
+            if move_piece(puzzle, current, m) not in visitats
+        ]
+
+        move = random.choice(movs_no_visitats if movs_no_visitats else movs)
+
+        next_state = move_piece(puzzle, current, move)
+
+        if next_state == goal_state and len(visitats) > 5:
+            last_move = move
             continue
 
-        opcions.sort(reverse=True)
-        tall = max(1, len(opcions) * percentil // 100)
-        _, (gx, gy) = random.choice(opcions[:tall])
-        goals_list.append((p_idx, (gx, gy)))
+        current = next_state
 
-    return tuple(sorted(goals_list))
+        if current not in visitats:
+            dist = visitats[prev] + 1
+            visitats[current] = dist
+
+            if dist > millor_dist:
+                millor = current
+                millor_dist = dist
+
+        last_move = move
+
+    return millor
+
+
+
+def _trobar_goal_position(
+    piece: Piece,
+    ocupades: set[tuple[int, int]],
+    W: int,
+    H: int,
+) -> tuple[int, int] | None:
+
+    max_dx = max(dx for dx, _ in piece.coords)
+    max_dy = max(dy for _, dy in piece.coords)
+
+    candidats = [
+        (0, 0),
+        (W - max_dx - 1, 0),
+        (0, H - max_dy - 1),
+        (W - max_dx - 1, H - max_dy - 1),
+        (max(0, (W - max_dx - 1) // 2), max(0, (H - max_dy - 1) // 2)),
+    ]
+
+    for px, py in candidats:
+
+        valid = True
+
+        for dx, dy in piece.coords:
+
+            x = px + dx
+            y = py + dy
+
+            if not (0 <= x < W and 0 <= y < H):
+                valid = False
+                break
+
+            if (x, y) in ocupades:
+                valid = False
+                break
+
+        if valid:
+            return (px, py)
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -267,27 +343,85 @@ def generar_puzzle(cfg: NivellConfig) -> Puzzle | None:
     if not peces_generades:
         return None
 
-    pairs = sorted(zip(peces_generades, posicions_inicials))
-    peces_final = tuple(p for p, _ in pairs)
-    posicions_final = tuple(pos for _, pos in pairs)
+    peces_final = tuple(peces_generades)
+    goal_positions = list(posicions_inicials)
 
-    goals = _generar_objectius(
-        peces_final, posicions_final, walls,
-        W, H, cfg.nombre_objectius, cfg.percentil_objectiu,
+    # La peça objectiu és la més gran
+    goal_piece_idx = max(
+        range(len(peces_final)),
+        key=lambda i: len(peces_final[i].coords),
     )
-    if not goals:
+
+    # Posem la peça objectiu a una cantonada "resolta"
+    ocupades_goal = set(walls)
+
+    for i, pos in enumerate(goal_positions):
+        if i == goal_piece_idx:
+            continue
+
+        px, py = pos
+
+        for dx, dy in peces_final[i].coords:
+            ocupades_goal.add((px + dx, py + dy))
+
+    nova_pos = _trobar_goal_position(
+        peces_final[goal_piece_idx],
+        ocupades_goal,
+        W,
+        H,
+    )
+
+    if nova_pos is None:
         return None
 
-    try:
-        return Puzzle(
-            W=W, H=H,
-            walls=walls,
-            pieces=peces_final,
-            start=State(posicions_final),
-            goals=goals,
-        )
-    except ValueError:
-        return None
+    goal_positions[goal_piece_idx] = nova_pos
+
+    goal_positions = tuple(goal_positions)
+
+    goals = (
+        (goal_piece_idx, goal_positions[goal_piece_idx]),
+    )
+
+
+
+
+
+
+    # -------------------------------------------------------------------
+    # Construïm primer un estat RESOLT
+    # -------------------------------------------------------------------
+
+    goal_state = State(goal_positions)
+
+    puzzle_base = Puzzle(
+        W=W,
+        H=H,
+        walls=walls,
+        pieces=peces_final,
+        start=goal_state,
+        goals=goals,
+    )
+
+    # -------------------------------------------------------------------
+    # Ara fem scrambling reversible sobre el graf
+    # -------------------------------------------------------------------
+
+    steps = cfg.scramble_steps
+
+    start_state = _scramble_state(
+        puzzle_base,
+        goal_state,
+        steps,
+    )
+
+    return Puzzle(
+        W=W,
+        H=H,
+        walls=walls,
+        pieces=peces_final,
+        start=start_state,
+        goals=goals,
+    )
 
 
 # ---------------------------------------------------------------------------
