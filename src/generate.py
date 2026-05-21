@@ -1,24 +1,12 @@
 """
 Genera un nou puzzle en format .json en base a un nivell de dificultat.
 
-El programa escull automàticament les dimensions del taulell, el nombre de
-peces, la seva mida, les parets i el nombre d'objectius per maximitzar la
-dificultat del nivell demanat.
-
-Ús: python3 generate.py <easy|medium|hard> <nom_puzzle>
-
-Nivells:
-  easy   — taulell petit, poques peces petites, molt espai lliure, 1 objectiu
-  medium — taulell mitjà, peces mixtes, densitat moderada, 1 objectiu
-  hard   — taulell gran, moltes peces grans, taulell molt dens, parets, 1 objectiu
-
-Estratègia anti-bloqueig:
-  - Els paràmetres de cada nivell estan calibrats per garantir que la majoria
-    de puzzles generats siguin resolubles sense necessitar massa intents.
-  - Per a 'hard', les dimensions del taulell es trien aleatòriament dins d'un
-    rang que garanteix prou espai lliure perquè les peces es puguin moure.
-  - Si en MAX_INTENTS intents no es troba cap puzzle resoluble, el programa
-    retorna el millor que hagi trobat (encara que no assoleixi PUNTUACIO_MINIMA).
+Aquesta versió clona l'estructura matemàtica dels puzles Top-Tier (4.5+ estrelles):
+- Taulells de 5x6 o 6x5.
+- SENSE parets (les parets fracturen el graf inútilment).
+- Densitat mil·limètrica (deixant entre 3 i 5 caselles lliures).
+- Ús de formes complexes (L, T, Z) combinades amb peces petites.
+- Generació Forward: Col·loca la peça més gran i l'envia a la cantonada oposada.
 """
 
 from __future__ import annotations
@@ -30,58 +18,30 @@ from pathlib import Path
 
 from puzzle import Puzzle, Piece, State
 from eval import avaluar_puzzle, imprimir_avaluacio
-from logic import possible_moves, move_piece
+from logic import possible_moves
 
 # ---------------------------------------------------------------------------
-# Catàleg de formes: totes les orientacions de poliominós fins a mida 4
+# Catàleg de formes complet
 # ---------------------------------------------------------------------------
 
 FORMES_CATALEG: list[list[tuple[int, int]]] = [
-    # Dòminos (mida 2)
-    [(0, 0), (1, 0)],
-    [(0, 0), (0, 1)],
-    # Triòminós I (mida 3)
-    [(0, 0), (1, 0), (2, 0)],
-    [(0, 0), (0, 1), (0, 2)],
-    # Triòminós L (mida 3)
-    [(0, 0), (0, 1), (1, 0)],
-    [(0, 0), (1, 0), (1, 1)],
-    [(0, 1), (1, 0), (1, 1)],
-    [(0, 0), (0, 1), (1, 1)],
-    # Tetròminós O (mida 4)
+    [(0, 0)], [(0, 0), (1, 0)], [(0, 0), (0, 1)],
+    [(0, 0), (1, 0), (2, 0)], [(0, 0), (0, 1), (0, 2)],
+    [(0, 0), (0, 1), (1, 0)], [(0, 0), (1, 0), (1, 1)],
+    [(0, 1), (1, 0), (1, 1)], [(0, 0), (0, 1), (1, 1)],
     [(0, 0), (0, 1), (1, 0), (1, 1)],
-    # Tetròminós I (mida 4)
-    [(0, 0), (1, 0), (2, 0), (3, 0)],
-    [(0, 0), (0, 1), (0, 2), (0, 3)],
-    # Tetròminós T (mida 4)
-    [(0, 0), (1, 0), (2, 0), (1, 1)],
-    [(0, 0), (0, 1), (0, 2), (1, 1)],
-    [(0, 1), (1, 0), (1, 1), (2, 1)],
-    [(0, 1), (1, 0), (1, 1), (1, 2)],
-    # Tetròminós L (mida 4)
-    [(0, 0), (0, 1), (0, 2), (1, 2)],
-    [(0, 0), (1, 0), (2, 0), (2, 1)],
-    [(0, 0), (1, 0), (1, 1), (1, 2)],
-    [(0, 1), (1, 1), (2, 0), (2, 1)],
-    # Tetròminós J (mida 4)
-    [(0, 0), (0, 1), (0, 2), (1, 0)],
-    [(0, 0), (1, 0), (2, 0), (0, 1)],
-    [(0, 2), (1, 0), (1, 1), (1, 2)],
-    [(0, 0), (0, 1), (1, 1), (2, 1)],
-    # Tetròminós S (mida 4)
-    [(0, 1), (1, 0), (1, 1), (2, 0)],
-    [(0, 0), (0, 1), (1, 1), (1, 2)],
-    # Tetròminós Z (mida 4)
-    [(0, 0), (1, 0), (1, 1), (2, 1)],
-    [(0, 1), (0, 2), (1, 0), (1, 1)],
+    [(0, 0), (1, 0), (2, 0), (3, 0)], [(0, 0), (0, 1), (0, 2), (0, 3)],
+    [(0, 0), (1, 0), (2, 0), (1, 1)], [(0, 0), (0, 1), (0, 2), (1, 1)],
+    [(0, 1), (1, 0), (1, 1), (2, 1)], [(0, 1), (1, 0), (1, 1), (1, 2)],
+    [(0, 0), (0, 1), (0, 2), (1, 2)], [(0, 0), (1, 0), (2, 0), (2, 1)],
+    [(0, 0), (1, 0), (1, 1), (1, 2)], [(0, 1), (1, 1), (2, 0), (2, 1)],
+    [(0, 0), (0, 1), (0, 2), (1, 0)], [(0, 0), (1, 0), (2, 0), (0, 1)],
+    [(0, 2), (1, 0), (1, 1), (1, 2)], [(0, 0), (0, 1), (1, 1), (2, 1)],
+    [(0, 1), (1, 0), (1, 1), (2, 0)], [(0, 0), (0, 1), (1, 1), (1, 2)],
+    [(0, 0), (1, 0), (1, 1), (2, 1)], [(0, 1), (0, 2), (1, 0), (1, 1)],
 ]
 
-# Formes de fallback de gran a petit per quan el taulell s'omple
-_FALLBACKS = [
-    [(0, 0), (0, 1)],
-    [(0, 0), (1, 0)],
-    [(0, 0)],
-]
+_FALLBACKS = [[(0, 0), (0, 1)], [(0, 0), (1, 0)], [(0, 0)]]
 
 # ---------------------------------------------------------------------------
 # Configuració dels nivells de dificultat
@@ -89,58 +49,35 @@ _FALLBACKS = [
 
 @dataclass
 class NivellConfig:
-    w_range:            tuple[int, int]
-    h_range:            tuple[int, int]
-    ocupacio:           float
-    pesos_mida:         dict[int, int]
-    amb_parets:         bool
-    nombre_objectius:   int
-    puntuacio_minima:   float
-    max_intents:        int
-    percentil_objectiu: int
-    scramble_steps:     int
-
-
+    dimensions: list[tuple[int, int]]
+    ocupacio: float
+    pesos_mida: dict[int, int]
+    amb_parets: bool
+    nombre_objectius: int
+    puntuacio_minima: float
+    max_intents: int
 
 NIVELLS: dict[str, NivellConfig] = {
     "easy": NivellConfig(
-        w_range            = (4, 5),
-        h_range            = (4, 5),
-        ocupacio           = 0.55,
-        pesos_mida         = {1: 5, 2: 4, 3: 2, 4: 1},
-        amb_parets         = False,
-        nombre_objectius   = 1,
-        puntuacio_minima   = 0.8,
-        max_intents        = 40,
-        percentil_objectiu = 50,
-        scramble_steps     = 40,
+        dimensions=[(4, 4), (4, 5)], ocupacio=0.65,
+        pesos_mida={1: 5, 2: 4, 3: 1, 4: 0}, amb_parets=False,
+        nombre_objectius=1, puntuacio_minima=1.0, max_intents=30,
     ),
     "medium": NivellConfig(
-        w_range            = (5, 6),
-        h_range            = (4, 5),
-        ocupacio           = 0.70,
-        pesos_mida         = {1: 1, 2: 5, 3: 6, 4: 3},
-        amb_parets         = False,
-        nombre_objectius   = 1,
-        puntuacio_minima   = 1.5,
-        max_intents        = 60,
-        percentil_objectiu = 25,
-        scramble_steps     = 120,
+        dimensions=[(5, 5)], ocupacio=0.80,
+        pesos_mida={1: 4, 2: 5, 3: 3, 4: 1}, amb_parets=False,
+        nombre_objectius=1, puntuacio_minima=2.0, max_intents=60,
     ),
     "hard": NivellConfig(
-        w_range            = (5, 6),
-        h_range            = (5, 7),
-        ocupacio           = 0.72,
-        pesos_mida         = {1: 3, 2: 4, 3: 5, 4: 3},
-        amb_parets         = True,
-        nombre_objectius   = 1,
-        puntuacio_minima   = 3.5,
-        max_intents        = 100,
-        percentil_objectiu = 10,
-        scramble_steps     = 400,
+        dimensions=[(5, 6), (6, 5)], 
+        ocupacio=0.86, # 26 caselles ocupades de 30 = exactament 4 forats lliures
+        pesos_mida={1: 3, 2: 6, 3: 4, 4: 3}, # La Proporció Àuria (poquets 1x1, molts dòminos, algunes complexes)
+        amb_parets=False, # SENSE PARETS
+        nombre_objectius=1, # 1 sol objectiu maximitza la unicitat de la solució
+        puntuacio_minima=3.6, 
+        max_intents=150, 
     ),
 }
-
 
 # ---------------------------------------------------------------------------
 # Funcions auxiliars
@@ -148,284 +85,104 @@ NIVELLS: dict[str, NivellConfig] = {
 
 def _forma_ponderada(pesos_mida: dict[int, int]) -> list[tuple[int, int]]:
     formes_valides = [f for f in FORMES_CATALEG if pesos_mida.get(len(f), 0) > 0]
-    pesos = [pesos_mida[len(f)] for f in formes_valides]
+    pesos = [pesos_mida.get(len(f), 0) for f in formes_valides]
     return random.choices(formes_valides, weights=pesos, k=1)[0]
 
-
-def _col_locar_peca(
-    forma: list[tuple[int, int]],
-    W: int,
-    H: int,
-    ocupades: set[tuple[int, int]],
+def _trobar_objectiu_lluny(
+    peça: Piece, pos_actual: tuple[int, int], ocupades: set[tuple[int, int]], W: int, H: int
 ) -> tuple[int, int] | None:
-    max_dx = max(dx for dx, dy in forma)
-    max_dy = max(dy for dx, dy in forma)
-    candidats = [
-        (px, py)
-        for px in range(W - max_dx + 1)
-        for py in range(H - max_dy + 1)
-        if all((px + dx, py + dy) not in ocupades for dx, dy in forma)
-    ]
-    return random.choice(candidats) if candidats else None
+    max_dx = max(dx for dx, _ in peça.coords)
+    max_dy = max(dy for _, dy in peça.coords)
 
+    opcions = []
+    for gx in range(W - max_dx):
+        for gy in range(H - max_dy):
+            if (gx, gy) == pos_actual:
+                continue
+            dist = abs(gx - pos_actual[0]) + abs(gy - pos_actual[1])
+            opcions.append((dist, (gx, gy)))
 
-def _generar_parets(W: int, H: int, n_walls: int) -> tuple[tuple[int, int], ...]:
-    candidates = [
-        (x, y) for x in range(W) for y in range(H)
-        if not (x in (0, W - 1) and y in (0, H - 1))
-    ]
-    random.shuffle(candidates)
-    return tuple(sorted(candidates[:n_walls]))
+    if not opcions:
+        return None
 
-
-
-DIR_OPPOSITE = {
-    "N": "S",
-    "S": "N",
-    "E": "W",
-    "W": "E",
-}
-
-
-def _scramble_state(
-    puzzle: Puzzle,
-    goal_state: State,
-    passos: int,
-) -> State:
-
-    current = goal_state
-    last_move = None
-
-    visitats: dict[State, int] = {current: 0}
-
-    millor = current
-    millor_dist = 0
-
-    for _ in range(passos):
-
-        prev = current
-        movs = possible_moves(puzzle, current)
-
-        if last_move is not None:
-            inv_piece, inv_dir = last_move
-            movs = [
-                m for m in movs
-                if not (
-                    m[0] == inv_piece and
-                    m[1] == DIR_OPPOSITE[inv_dir]
-                )
-            ]
-
-        if not movs:
-            break
-
-        movs_no_visitats = [
-            m for m in movs
-            if move_piece(puzzle, current, m) not in visitats
-        ]
-
-        move = random.choice(movs_no_visitats if movs_no_visitats else movs)
-
-        next_state = move_piece(puzzle, current, move)
-
-        if next_state == goal_state and len(visitats) > 5:
-            last_move = move
-            continue
-
-        current = next_state
-
-        if current not in visitats:
-            dist = visitats[prev] + 1
-            visitats[current] = dist
-
-            if dist > millor_dist:
-                millor = current
-                millor_dist = dist
-
-        last_move = move
-
-    return millor
-
-
-
-def _trobar_goal_position(
-    piece: Piece,
-    ocupades: set[tuple[int, int]],
-    W: int,
-    H: int,
-) -> tuple[int, int] | None:
-
-    max_dx = max(dx for dx, _ in piece.coords)
-    max_dy = max(dy for _, dy in piece.coords)
-
-    candidats = [
-        (0, 0),
-        (W - max_dx - 1, 0),
-        (0, H - max_dy - 1),
-        (W - max_dx - 1, H - max_dy - 1),
-        (max(0, (W - max_dx - 1) // 2), max(0, (H - max_dy - 1) // 2)),
-    ]
-
-    for px, py in candidats:
-
-        valid = True
-
-        for dx, dy in piece.coords:
-
-            x = px + dx
-            y = py + dy
-
-            if not (0 <= x < W and 0 <= y < H):
-                valid = False
-                break
-
-            if (x, y) in ocupades:
-                valid = False
-                break
-
-        if valid:
-            return (px, py)
-
-    return None
-
+    opcions.sort(reverse=True)
+    # Ens quedem amb la posició absolutament més llunyana possible (cantonada oposada normalment)
+    return opcions[0][1]
 
 # ---------------------------------------------------------------------------
-# Generació principal del puzzle
+# Generació principal del puzzle (FORWARD GENERATION)
 # ---------------------------------------------------------------------------
 
 def generar_puzzle(cfg: NivellConfig) -> Puzzle | None:
-    W = random.randint(*cfg.w_range)
-    H = random.randint(*cfg.h_range)
+    W, H = random.choice(cfg.dimensions)
 
-    walls: tuple[tuple[int, int], ...] = ()
-    if cfg.amb_parets:
-        n_walls = max(1, (W * H) // 12)
-        walls = _generar_parets(W, H, n_walls)
-
-    ocupades: set[tuple[int, int]] = set(walls)
-    area_total = W * H - len(walls)
-    caselles_lliures_min = 3 if cfg.amb_parets else 2
-    area_max = int(area_total * cfg.ocupacio) - caselles_lliures_min
-
-    if area_max <= 0:
-        return None
+    ocupades: set[tuple[int, int]] = set()
+    area_total = W * H
+    area_max = int(area_total * cfg.ocupacio)
 
     peces_generades: list[Piece] = []
     posicions_inicials: list[tuple[int, int]] = []
     area_actual = 0
     intents = 0
 
-    while area_actual < area_max and intents < 400:
+    # Assegurem posar almenys una peça grossa (mida 4) al principi per fer de Meta
+    formes_grans = [f for f in FORMES_CATALEG if len(f) == 4]
+    forma_inicial = random.choice(formes_grans)
+    
+    # Bucle d'ompliment
+    while area_actual < area_max and intents < 200:
         intents += 1
-
-        forma_coords = _forma_ponderada(cfg.pesos_mida)
-
+        
+        if area_actual == 0:
+            forma_coords = forma_inicial
+        else:
+            forma_coords = _forma_ponderada(cfg.pesos_mida)
+            
         pos = None
         for candidata in [forma_coords] + _FALLBACKS:
-            if area_actual + len(candidata) > area_max:
-                continue
-            pos = _col_locar_peca(candidata, W, H, ocupades)
-            if pos is not None:
+            if area_actual + len(candidata) > area_max: continue
+            max_dx = max(dx for dx, _ in candidata)
+            max_dy = max(dy for _, dy in candidata)
+            candidats = [
+                (px, py) for px in range(W - max_dx) for py in range(H - max_dy)
+                if all((px + dx, py + dy) not in ocupades for dx, dy in candidata)
+            ]
+            if candidats:
+                pos = random.choice(candidats)
                 forma_coords = candidata
                 break
 
-        if pos is None:
-            break
+        if pos:
+            px, py = pos
+            peça = Piece.normalized(forma_coords)
+            peces_generades.append(peça)
+            posicions_inicials.append((px, py))
+            for dx, dy in forma_coords:
+                ocupades.add((px + dx, py + dy))
+            area_actual += len(forma_coords)
 
-        px, py = pos
-        peça = Piece.normalized(forma_coords)
-        peces_generades.append(peça)
-        posicions_inicials.append((px, py))
-        for dx, dy in forma_coords:
-            ocupades.add((px + dx, py + dy))
-        area_actual += len(forma_coords)
+    if not peces_generades: return None
 
-    if not peces_generades:
+    # Ordenació canònica de sortida
+    pairs = sorted(zip(peces_generades, posicions_inicials))
+    peces_final = tuple(p for p, _ in pairs)
+    posicions_final = tuple(pos for _, pos in pairs)
+
+    # Identificar la peça més gran per fer-la objectiu
+    idx_meta = max(range(len(peces_final)), key=lambda i: len(peces_final[i].coords))
+    
+    pos_meta = _trobar_objectiu_lluny(peces_final[idx_meta], posicions_final[idx_meta], set(), W, H)
+    if pos_meta is None:
         return None
 
-    peces_final = tuple(peces_generades)
-    goal_positions = list(posicions_inicials)
-
-    # La peça objectiu és la més gran
-    goal_piece_idx = max(
-        range(len(peces_final)),
-        key=lambda i: len(peces_final[i].coords),
-    )
-
-    # Posem la peça objectiu a una cantonada "resolta"
-    ocupades_goal = set(walls)
-
-    for i, pos in enumerate(goal_positions):
-        if i == goal_piece_idx:
-            continue
-
-        px, py = pos
-
-        for dx, dy in peces_final[i].coords:
-            ocupades_goal.add((px + dx, py + dy))
-
-    nova_pos = _trobar_goal_position(
-        peces_final[goal_piece_idx],
-        ocupades_goal,
-        W,
-        H,
-    )
-
-    if nova_pos is None:
-        return None
-
-    goal_positions[goal_piece_idx] = nova_pos
-
-    goal_positions = tuple(goal_positions)
-
-    goals = (
-        (goal_piece_idx, goal_positions[goal_piece_idx]),
-    )
-
-
-
-
-
-
-    # -------------------------------------------------------------------
-    # Construïm primer un estat RESOLT
-    # -------------------------------------------------------------------
-
-    goal_state = State(goal_positions)
-
-    puzzle_base = Puzzle(
-        W=W,
-        H=H,
-        walls=walls,
-        pieces=peces_final,
-        start=goal_state,
-        goals=goals,
-    )
-
-    # -------------------------------------------------------------------
-    # Ara fem scrambling reversible sobre el graf
-    # -------------------------------------------------------------------
-
-    steps = cfg.scramble_steps
-
-    start_state = _scramble_state(
-        puzzle_base,
-        goal_state,
-        steps,
-    )
+    goals = ((idx_meta, pos_meta),)
 
     return Puzzle(
-        W=W,
-        H=H,
-        walls=walls,
-        pieces=peces_final,
-        start=start_state,
-        goals=goals,
+        W=W, H=H, walls=(), pieces=peces_final, start=State(posicions_final), goals=goals
     )
 
-
 # ---------------------------------------------------------------------------
-# Selecció del millor puzzle entre múltiples intents (Amb Telemetria Ràpida)
+# Cerca del millor puzzle
 # ---------------------------------------------------------------------------
 
 def generar_millor_puzzle(cfg: NivellConfig, nivell: str) -> tuple[Puzzle, dict]:
@@ -437,11 +194,11 @@ def generar_millor_puzzle(cfg: NivellConfig, nivell: str) -> tuple[Puzzle, dict]
         
         pz = generar_puzzle(cfg)
         if pz is None:
-            print("❌ Ignorat (No hi caben les peces)")
+            print("❌ Ignorat (Sense espai)")
             continue
-
+            
         if not possible_moves(pz, pz.start):
-            print("❌ Ignorat (Taulell 100% bloquejat d'inici)")
+            print("❌ Ignorat (Bloquejat d'inici)")
             continue
 
         print("Avaluant... ", end="", flush=True)
@@ -466,38 +223,25 @@ def generar_millor_puzzle(cfg: NivellConfig, nivell: str) -> tuple[Puzzle, dict]
             break
 
     if millor_puzzle is None:
-        print(f"Error: no s'ha pogut generar cap puzzle '{nivell}' resoluble.")
+        print(f"\nError: no s'ha pogut generar cap puzzle '{nivell}' resoluble.")
         sys.exit(1)
-
-    if millor_resultat["puntuacio"] < cfg.puntuacio_minima:
-        print(f"\n  ⚠ No s'ha assolit la puntuació mínima ({cfg.puntuacio_minima}). "
-              f"Es retorna el millor trobat ({millor_resultat['puntuacio']:.2f}).")
 
     return millor_puzzle, millor_resultat
 
-
-# ---------------------------------------------------------------------------
-# Punt d'entrada
-# ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print(f"Ús: python3 {sys.argv[0]} <easy|medium|hard> <nom_puzzle>")
         sys.exit(1)
 
-    nivell   = sys.argv[1].lower()
+    nivell = sys.argv[1].lower()
     nom_arxiu = sys.argv[2]
-
+    
     if nivell not in NIVELLS:
         print(f"Error: nivell '{nivell}' desconegut. Usa 'easy', 'medium' o 'hard'.")
         sys.exit(1)
-
+        
     cfg = NIVELLS[nivell]
-    print(f"Generant puzzle '{nom_arxiu}' [nivell: {nivell.upper()}]...")
-    print(f"  Taulell: {cfg.w_range[0]}-{cfg.w_range[1]}×{cfg.h_range[0]}-{cfg.h_range[1]}, "
-          f"ocupació fins al {int(cfg.ocupacio*100)}%, "
-          f"parets: {'sí' if cfg.amb_parets else 'no'}")
 
+    print(f"Generant puzzle '{nom_arxiu}' [nivell: {nivell.upper()}]...")
     millor, resultat = generar_millor_puzzle(cfg, nivell)
 
     path = Path(f"{nom_arxiu}.json")

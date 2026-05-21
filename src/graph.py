@@ -27,19 +27,18 @@ def state_key(puzzle: Puzzle, estat: State | StateKey) -> StateKey:
     return str(canonical_key(puzzle, estat))
 
 
-def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
+def generar_graf(puzzle: Puzzle, limit_estats: int | None = None) -> tuple[gt.Graph, list[gt.Vertex]]:
     """
     Genera el graf del puzzle processant la cerca purament en Python
     i construint el graf de graph-tool en bloc per a màxima velocitat.
+    Si s'indica limit_estats, la cerca es talla un cop superat aquest límit d'estats
+    per evitar col·lapsar la memòria en puzles gegants.
     """
-    # 1. Exploració purament en Python (molt més ràpid que creuar a C++ a cada pas)
     start_state = puzzle.start
     start_key = canonical_key(puzzle, start_state)
     
-    # Mapeig de clau -> índex enter (necessari per a add_edge_list)
     visited_idx: dict[tuple, int] = {start_key: 0}
     
-    # Dades per construir els vèrtexs
     state_strings: list[str] = [str(start_key)]
     is_goal_list: list[bool] = [is_goal(puzzle, start_state)]
     is_start_list: list[bool] = [True]
@@ -48,6 +47,10 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
     stack = [start_state]
 
     while stack:
+        # TALLAFOCS OPCIONAL: Tallem l'exploració si el graf es descontrola
+        if limit_estats is not None and len(visited_idx) >= limit_estats:
+            break
+
         estat_actual = stack.pop()
         current_key = canonical_key(puzzle, estat_actual)
         curr_idx = visited_idx[current_key]
@@ -68,21 +71,19 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
             
             edges.append((curr_idx, visited_idx[next_key]))
 
-    # 2. Construcció del graf en bloc (graph-tool vola amb això)
+    # Construcció del graf en bloc (molt més ràpid)
     g = gt.Graph(directed=True)
     g.add_vertex(len(visited_idx))
     g.add_edge_list(edges)
 
-    # 3. Assignació de propietats en bloc
+    # Assignació de propietats
     v_is_goal = g.new_vertex_property("bool")
     v_is_start = g.new_vertex_property("bool")
     v_state = g.new_vertex_property("string") 
     
-    # Assignem les llistes directament a les propietats
     v_is_goal.a = is_goal_list
     v_is_start.a = is_start_list
     
-    # Les propietats d'objecte (string) s'han d'iterar, però ara només ho fem un cop
     for i, s_str in enumerate(state_strings):
         v_state[g.vertex(i)] = s_str
 
@@ -98,6 +99,7 @@ def generar_graf(puzzle: Puzzle) -> tuple[gt.Graph, list[gt.Vertex]]:
     
     return g, nodes_desti
 
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"Ús: python3 {sys.argv[0]} <puzzle.json>")
@@ -105,8 +107,10 @@ if __name__ == "__main__":
 
     json_path = Path(sys.argv[1])
     pz = Puzzle.from_json(json_path.read_text())
+    
+    # Executat manualment NO té límit, genera el 100% per al visualitzador 3D
     g, destins = generar_graf(pz)
 
     output_filename = sys.argv[1].replace('.json', '.graphml')
     g.save(output_filename)
-    print(f"Graf guardat a {output_filename} (Nodes: {g.num_vertices()}, Arestes: {g.num_edges()})")
+    print(f"Graf complet guardat a {output_filename} (Nodes: {g.num_vertices()}, Arestes: {g.num_edges()})")

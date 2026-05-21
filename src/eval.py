@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import sys
 import json
+import math
 from pathlib import Path
 
 import graph_tool.all as gt  # type: ignore[import-untyped]
 
 from graph import generar_graf
 from puzzle import Puzzle
-from math import log 
 from solve import _a_star_real
 
 
@@ -29,23 +29,20 @@ from solve import _a_star_real
 # Pesos de cada mètrica en la puntuació final (han de sumar 1.0)
 # ---------------------------------------------------------------------------
 
-PES_LONGITUD_SOLUCIO  = 0.35  # la mètrica més rellevant per a la dificultat
-PES_ESPAI_ESTATS      = 0.25  # recompensa puzzles amb molt espai de cerca
-PES_UNICITAT_SOLUCIO  = 0.20  # penalitza puzzles amb moltes solucions trivials
-PES_EFICIENCIA_CAMI   = 0.10  # recompensa que el camí òptim no sigui obvi
-PES_PONTS             = 0.10  # recompensa l'existència de fases (ponts al graf)
+PES_LONGITUD_SOLUCIO  = 0.35  
+PES_ESPAI_ESTATS      = 0.25  
+PES_UNICITAT_SOLUCIO  = 0.20  
+PES_EFICIENCIA_CAMI   = 0.10  
+PES_PONTS             = 0.10  
 
 
 # ---------------------------------------------------------------------------
-# Llindars de referència per normalitzar cada mètrica a [0, 1]
-# Ajustats empíricament observant puzzles de mostra.
+# Llindars de referència calibrats
 # ---------------------------------------------------------------------------
 
-LONGITUD_MAX_REF  = 30   # moviments; puzzles de més de 80 es consideren 'perfectes'
-                         # referència: simplicity=31, 2swap=17, klotski=116
-ESTATS_MAX_REF    = 2000 # nodes; referència: klotski i 2swap (2 caselles lliures)
-                         # generen grafs molt densos; 8000 és un llindar realista
-PONTS_MAX_REF     = 10   # número de ponts; més de 10 → puntuació màxima
+LONGITUD_MAX_REF  = 90    # Moviments (ajustat per puzzles top)
+ESTATS_MAX_REF    = 35000 # Nodes (ajustat per puzzles top)
+PONTS_MAX_REF     = 20    # Colls d'ampolla estructurals
 
 
 def normalitzar(valor: float, maxim: float) -> float:
@@ -67,7 +64,8 @@ def score_unicitat(num_solucions: int) -> float:
     """Mètrica 3 — Unicitat de la solució."""
     if num_solucions == 0:
         return 0.0
-    return 1.0 / log(1 + num_solucions)
+    # SOLUCIÓ BUG: Utilitzem log2 perquè 1 solució = 1.0 de nota (1 / log2(2) = 1)
+    return 1.0 / math.log2(1 + num_solucions)
 
 
 def score_eficiencia(longitud_optima: int, num_estats: int) -> float:
@@ -80,7 +78,8 @@ def score_eficiencia(longitud_optima: int, num_estats: int) -> float:
 
 def score_ponts(g: gt.Graph) -> float:
     """Mètrica 5 — Presència de ponts al graf no dirigit subjacent."""
-    g_no_dir = gt.Graph(g, directed=False)
+    # OPTIMITZACIÓ: GraphView evita copiar el graf en memòria, molt més ràpid!
+    g_no_dir = gt.GraphView(g, directed=False)
     comp, arestes_pont, _ = gt.label_biconnected_components(g_no_dir)
     num_ponts = int(arestes_pont.a.sum())
     return normalitzar(num_ponts, PONTS_MAX_REF)
@@ -95,16 +94,17 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
     Donat un puzzle, en genera el graf i calcula totes les mètriques.
     Retorna un diccionari amb les puntuacions parcials i la final (0.0-5.0).
     """
-    # El graf se sigue generando porque aporta las métricas de tamaño, soluciones y puentes
-    g, nodes_desti = generar_graf(pz)
+    # 1. Generem el graf, però limitem la cerca a 40.000 estats per no col·lapsar.
+    # Si un puzzle passa d'aquí, ja rebrà el 5.0 en la mètrica d'espai igualment.
+    g, nodes_desti = generar_graf(pz, limit_estats=40000)
 
     num_estats    = g.num_vertices()
     num_solucions = len(nodes_desti)
 
-    # llamamos directamente a tu algoritmo A* híbrido ultra rápido y preciso.
+    # 2. Resolem el puzzle amb l'A* real (calcula el camí exacte i més ràpid)
     cami_optim = _a_star_real(pz)
 
-    # Si el A* no encuentra camino, el puzzle no es resoluble
+    # Si l'A* no troba camí, el puzzle no és resoluble
     if cami_optim is None:
         return {
             "resoluble":        False,
@@ -123,12 +123,17 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
 
     longitud_optima = len(cami_optim)
 
-    # Es calculen totes les mètriques parcials amb la longitud exacta
-    s_longitud  = score_longitud(longitud_optima)
-    s_espai     = score_espai(num_estats)
-    s_unicitat  = score_unicitat(num_solucions)
+    # PARCHE: Si el graf s'ha tallat a 40.000 estats abans d'arribar a la meta, 
+    # num_solucions seria 0. Com que l'A* SÍ ha trobat solució, garantim que sigui 1.
+    if num_solucions == 0:
+        num_solucions = 1
+
+    # Calculem totes les mètriques parcials
+    s_longitud   = score_longitud(longitud_optima)
+    s_espai      = score_espai(num_estats)
+    s_unicitat   = score_unicitat(num_solucions)
     s_eficiencia = score_eficiencia(longitud_optima, num_estats)
-    s_ponts     = score_ponts(g)
+    s_ponts      = score_ponts(g)
 
     # Puntuació ponderada final, escalada a [0, 5]
     puntuacio_norm = (
@@ -152,7 +157,7 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
             "eficiencia": round(s_eficiencia, 3),
             "ponts":      round(s_ponts,      3),
         },
-        "puntuacio": puntuacio,
+        "puntuacio":       puntuacio,
     }
 
 

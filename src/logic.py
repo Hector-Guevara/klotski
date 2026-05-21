@@ -130,29 +130,24 @@ def is_goal(puzzle: Puzzle, state: State) -> bool:
     return all(state.positions[i] == pos for i, pos in puzzle.goals)
 
 
-
-MOVE_DELTA = {
-    "N": (0, -1),
-    "S": (0, 1),
-    "E": (1, 0),
-    "W": (-1, 0),
-}
-
-
 def move_piece(
     puzzle: Puzzle,
     state: State,
-    move: tuple[int, str],
+    move: Move,
 ) -> State:
+    """
+    Versió ultraràpida d'apply_move.
+    No fa validacions de col·lisió i assumeix distància 1. 
+    Ideal per a l'scrambling del generate.py.
+    """
+    # Desempaquetem els 3 elements (ignorem la distància perquè l'scramble va d'1 en 1)
+    piece_idx, direction, _ = move
 
-    piece_idx, direction = move
-
-    dx, dy = MOVE_DELTA[direction]
+    # Utilitzem el diccionari DELTAS que ja teniu definit a dalt
+    dx, dy = DELTAS[direction]
 
     pos = list(state.positions)
-
     px, py = pos[piece_idx]
-
     pos[piece_idx] = (px + dx, py + dy)
 
     return State(tuple(pos))
