@@ -128,26 +128,3 @@ def replay_moves(puzzle: Puzzle, moves: list[Move]) -> list[State]:
 def is_goal(puzzle: Puzzle, state: State) -> bool:
     """Comprova si l'estat actual satisfà tots els objectius."""
     return all(state.positions[i] == pos for i, pos in puzzle.goals)
-
-
-def move_piece(
-    puzzle: Puzzle,
-    state: State,
-    move: Move,
-) -> State:
-    """
-    Versió ultraràpida d'apply_move.
-    No fa validacions de col·lisió i assumeix distància 1. 
-    Ideal per a l'scrambling del generate.py.
-    """
-    # Desempaquetem els 3 elements (ignorem la distància perquè l'scramble va d'1 en 1)
-    piece_idx, direction, _ = move
-
-    # Utilitzem el diccionari DELTAS que ja teniu definit a dalt
-    dx, dy = DELTAS[direction]
-
-    pos = list(state.positions)
-    px, py = pos[piece_idx]
-    pos[piece_idx] = (px + dx, py + dy)
-
-    return State(tuple(pos))
