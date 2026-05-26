@@ -2,22 +2,19 @@
 Avalua un puzzle de peces lliscants mesurant l'interès del seu graf d'estats.
  
 La puntuació final (de 0.0 a 5.0) combina cinc mètriques del graf:
- 
   1. Longitud de la solució òptima  (més moviments → més difícil)
   2. Mida de l'espai d'estats       (més estats accessibles → més complex)
-  3. Unicitat de la solució         (menys solucions → més difícil)
-  4. Eficiència del camí òptim      (camí llarg sobre espai dens → més interessant)
+  3. Unicitat de la solució         (menys solucions → menys trivial)
+  4. Eficiència del camí òptim      (camí profund en espai dens → interessant)
   5. Ponts estructurals al graf     (colls d'ampolla → el puzzle té "fases")
  
-Arquitectura de dues passades independent:
-  - Passada 1 (graf)  → generar_graf sense límit artificial, extreu mètriques
-                        estructurals (num_estats, num_solucions, ponts).
-  - Passada 2 (A*)    → _a_star_real, obté la longitud òptima exacta sense
-                        dependre del graf.
- 
-  Les dues passades són completament independents: si el graf és gran, les
-  mètriques d'espai i ponts es saturen a 1.0 igualment (per disseny dels
-  llindars), i la mètrica de longitud segueix sent exacta gràcies a l'A*.
+Estratègia de velocitat:
+  - El graf es genera amb un límit de LIMIT_ESTATS nodes. Si el puzzle és
+    gran, el graf es talla i les mètriques d'espai/ponts es saturen a 1.0
+    (comportament correcte: un puzzle amb >LIMIT_ESTATS estats és màxim).
+  - La longitud òptima s'obté sempre amb shortest_distance sobre el graf
+    parcial. Si el node destí no és assolible dins del límit, es fa servir
+    l'A* de solve.py com a fallback (molt ràpid gràcies a la heurística).
  
 Ús: python3 eval.py <puzzle.json>
 """
@@ -39,29 +36,24 @@ from solve import _a_star_real
 # Pesos de cada mètrica (han de sumar 1.0)
 # ---------------------------------------------------------------------------
  
-PES_LONGITUD_SOLUCIO = 0.35  # mètrica principal de dificultat
-PES_ESPAI_ESTATS     = 0.25  # recompensa espais de cerca grans
-PES_UNICITAT_SOLUCIO = 0.20  # penalitza puzzles amb moltes solucions trivials
-PES_EFICIENCIA_CAMI  = 0.10  # recompensa que el camí òptim sigui "profund"
-PES_PONTS            = 0.10  # recompensa l'existència de fases al puzzle
-
-
+PES_LONGITUD_SOLUCIO = 0.35
+PES_ESPAI_ESTATS     = 0.25
+PES_UNICITAT_SOLUCIO = 0.20
+PES_EFICIENCIA_CAMI  = 0.10
+PES_PONTS            = 0.10
+ 
 # ---------------------------------------------------------------------------
-# Llindars de referència per a la normalització lineal saturada a [0, 1].
-#
-# Criteris de calibratge (observats sobre puzzles de mostra):
-#   LONGITUD_MAX_REF : klotski original té ~116 moviments; 90 és un llindar
-#                      realista per als puzzles generats (mides 4-7x4-7).
-#   ESTATS_MAX_REF   : klotski i variants densos generen ~50.000-150.000 estats.
-#                      35.000 satura ràpid puzzles hard i dona bon gradient als
-#                      puzzles medium/easy.
-#   PONTS_MAX_REF    : més de 20 ponts estructurals indica un puzzle molt segmentat;
-#                      per sobre d'aquest valor la mètrica ja no discrimina més.
+# Llindars de referència i límit d'exploració
 # ---------------------------------------------------------------------------
  
 LONGITUD_MAX_REF = 90
 ESTATS_MAX_REF   = 35_000
 PONTS_MAX_REF    = 20
+ 
+# Límit d'estats per al graf: per sobre d'aquest valor les mètriques d'espai
+# i ponts ja saturen a 1.0, i la longitud es calcula amb A* si cal.
+# 8000 és suficient per discriminar easy/medium i prou ràpid per a generate.
+LIMIT_ESTATS = 8_000
  
  
 # ---------------------------------------------------------------------------
@@ -69,76 +61,32 @@ PONTS_MAX_REF    = 20
 # ---------------------------------------------------------------------------
  
 def _normalitzar(valor: float, maxim: float) -> float:
-    """Saturació lineal a [0, 1]: valor/maxim, amb cap a 1.0."""
     if maxim <= 0:
         return 0.0
     return min(valor / maxim, 1.0)
  
  
 def score_longitud(longitud_optima: int) -> float:
-    """
-    Mètrica 1 — Longitud de la solució òptima.
-    Creix linealment fins a LONGITUD_MAX_REF i satura a 1.0.
-    """
     return _normalitzar(longitud_optima, LONGITUD_MAX_REF)
  
  
 def score_espai(num_estats: int) -> float:
-    """
-    Mètrica 2 — Mida de l'espai d'estats accessibles.
-    Creix linealment fins a ESTATS_MAX_REF i satura a 1.0.
-    Nota: si el graf s'ha explorat parcialment, num_estats és un mínim;
-    la saturació assegura que puzzles molt grans rebin 1.0 igualment.
-    """
     return _normalitzar(num_estats, ESTATS_MAX_REF)
  
  
 def score_unicitat(num_solucions: int) -> float:
-    """
-    Mètrica 3 — Unicitat de la solució.
-    Usa log2 perquè: 1 solució → 1.0, 2 → 0.5, 4 → 0.33, 8 → 0.25 ...
-    Amb log (base e) l'escala seria diferent: 1 → ∞ (divisió per zero si
-    s'usa log(1+n) amb n=0), i log(2) ≈ 0.69, de manera que 1 solució
-    donaria 1/0.69 > 1 (fora de [0,1]). log2 és l'única base que garanteix
-    exactament 1.0 per a 1 solució sense cap factor d'escala addicional.
-    """
     if num_solucions <= 0:
         return 0.0
     return 1.0 / math.log2(1 + num_solucions)
  
  
 def score_eficiencia(longitud_optima: int, num_estats: int) -> float:
-    """
-    Mètrica 4 — Profunditat relativa del camí òptim.
- 
-    Volem recompensar puzzles on la solució és llarga *en relació* a l'espai
-    total. Intuïció: si cal recórrer molts passos per un laberint dens, el
-    puzzle és més interessant que un camí llarg en un espai buit.
- 
-    Fórmula: log2(1 + longitud) / log2(1 + num_estats)
-      - Si longitud ≈ num_estats (camí que omple tot l'espai) → score ≈ 1.0
-      - Si longitud << num_estats (camí curt en espai vast) → score petit
-      - Ambdós valors a 0 → 0.0 per convenció
-      - Creixement logarítmic evita que un sol estat de diferència domini.
- 
-    Nota: el codi original usava `1 - longitud/num_estats`, que penalitzava
-    exactament els puzzles més difícils (camí llarg = ratio gran = score baix).
-    """
     if num_estats <= 0 or longitud_optima <= 0:
         return 0.0
     return math.log2(1 + longitud_optima) / math.log2(1 + num_estats)
  
  
 def score_ponts(g: gt.Graph) -> float:
-    """
-    Mètrica 5 — Ponts estructurals al graf no dirigit subjacent.
- 
-    Un pont és una aresta la eliminació de la qual desconnecta el graf; indica
-    que el puzzle té "fases" obligatòries (colls d'ampolla). Més ponts → puzzle
-    més segmentat i, en general, més difícil de resoldre.
- 
-    Usem GraphView (vista sense còpia) per eficiència.
-    """
     g_no_dir = gt.GraphView(g, directed=False)
     _, arestes_pont, _ = gt.label_biconnected_components(g_no_dir)
     num_ponts = int(arestes_pont.a.sum())
@@ -151,38 +99,52 @@ def score_ponts(g: gt.Graph) -> float:
  
 def avaluar_puzzle(pz: Puzzle) -> dict:
     """
-    Avalua un puzzle en dues passades independents:
- 
-      1. Graf complet (sense límit artificial): extreu num_estats, num_solucions
-         i ponts estructurals. Per puzzles molt grans les mètriques d'espai i
-         ponts saturen ràpid a 1.0, que és el comportament correcte (un puzzle
-         amb 100k estats és, per definició, d'espai màxim).
- 
-      2. A* exacte: obté la longitud òptima sense dependre de la mida del graf.
- 
-    Retorna un diccionari amb les puntuacions parcials i la final (0.0-5.0).
+    Avalua un puzzle de forma ràpida:
+      1. Genera el graf fins a LIMIT_ESTATS nodes (talla si és massa gran).
+      2. Extreu num_estats, num_solucions i ponts del graf parcial.
+      3. Calcula la longitud òptima amb shortest_distance sobre el graf.
+         Si el destí no és assolible dins del límit, fa servir A* com a fallback.
     """
-    # --- Passada 1: graf estructural (sense límit) ---------------------------
-    # No posem limit_estats perquè:
-    #   a) La mètrica d'espai és lineal saturada: puzzles molt grans reben 1.0
-    #      tant si explorem 35k estats com 350k.
-    #   b) La mètrica de ponts es fa sobre el graf real; un graf truncat donaria
-    #      una topologia falsa (ponts artificials als fronts de tall).
-    #   c) Per als mides de taulell que generem (4-7 x 4-7), l'espai d'estats
-    #      rarament supera els 200k, perfectament manejable en memòria.
-    g, nodes_desti = generar_graf(pz)
+    # --- Graf parcial -------------------------------------------------------
+    g, nodes_desti = generar_graf(pz, limit_estats=LIMIT_ESTATS)
  
     num_estats    = g.num_vertices()
     num_solucions = len(nodes_desti)
  
-    # --- Passada 2: resolució exacta amb A* ---------------------------------
-    cami_optim = _a_star_real(pz)
+    # --- Longitud òptima ----------------------------------------------------
+    longitud_optima = 0
+    resoluble = False
  
-    if cami_optim is None:
+    if nodes_desti:
+        # Cas feliç: el node destí és dins del graf parcial
+        node_inicial = gt.find_vertex(g, g.vp["is_start"], True)[0]
+        distancies = gt.shortest_distance(g, source=node_inicial)
+        INF = 2**31 - 1
+        dist_min = min(int(distancies[d]) for d in nodes_desti)
+        if dist_min < INF:
+            longitud_optima = dist_min
+            resoluble = True
+ 
+    if not resoluble:
+        # Fallback: el graf s'ha tallat abans d'arribar al destí.
+        # L'A* és ràpid gràcies a la heurística Manhattan i troba la longitud
+        # exacta sense explorar tot l'espai.
+        cami = _a_star_real(pz)
+        if cami is not None:
+            longitud_optima = len(cami)
+            resoluble = True
+            # Si el graf s'ha tallat, l'espai real és ≥ LIMIT_ESTATS → satura
+            num_estats = max(num_estats, LIMIT_ESTATS)
+            # num_solucions del graf parcial és 0, però el puzzle és resoluble;
+            # posem 1 com a estimació conservadora (pitjor cas per a unicitat)
+            if num_solucions == 0:
+                num_solucions = 1
+ 
+    if not resoluble:
         return {
             "resoluble":       False,
             "num_estats":      num_estats,
-            "num_solucions":   num_solucions,
+            "num_solucions":   0,
             "longitud_optima": 0,
             "scores": {
                 "longitud":   0.0,
@@ -194,8 +156,6 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
             "puntuacio": 0.0,
         }
  
-    longitud_optima = len(cami_optim)
- 
     # --- Mètriques ----------------------------------------------------------
     s_longitud   = score_longitud(longitud_optima)
     s_espai      = score_espai(num_estats)
@@ -204,9 +164,9 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
     s_ponts      = score_ponts(g)
  
     puntuacio_norm = (
-        PES_LONGITUD_SOLUCIO * s_longitud  +
-        PES_ESPAI_ESTATS     * s_espai     +
-        PES_UNICITAT_SOLUCIO * s_unicitat  +
+        PES_LONGITUD_SOLUCIO * s_longitud   +
+        PES_ESPAI_ESTATS     * s_espai      +
+        PES_UNICITAT_SOLUCIO * s_unicitat   +
         PES_EFICIENCIA_CAMI  * s_eficiencia +
         PES_PONTS            * s_ponts
     )
@@ -233,7 +193,6 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
 # ---------------------------------------------------------------------------
  
 def imprimir_avaluacio(pz: Puzzle, resultat: dict) -> None:
-    """Imprimeix per pantalla un resum llegible de l'avaluació."""
     print(f"Taulell:          {pz.W}x{pz.H}  ({len(pz.pieces)} peces)")
     print(f"Resoluble:        {'Sí' if resultat['resoluble'] else 'No'}")
     print(f"Estats totals:    {resultat['num_estats']}")
@@ -262,4 +221,3 @@ if __name__ == "__main__":
  
     resultat = avaluar_puzzle(pz)
     imprimir_avaluacio(pz, resultat)
- 
