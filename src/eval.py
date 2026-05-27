@@ -47,13 +47,13 @@ PES_PONTS            = 0.10
 # ---------------------------------------------------------------------------
  
 LONGITUD_MAX_REF = 90
-ESTATS_MAX_REF   = 35_000
+ESTATS_MAX_REF   = 200_000
 PONTS_MAX_REF    = 20
  
 # Límit d'estats per al graf: per sobre d'aquest valor les mètriques d'espai
 # i ponts ja saturen a 1.0, i la longitud es calcula amb A* si cal.
-# 8000 és suficient per discriminar easy/medium i prou ràpid per a generate.
-LIMIT_ESTATS = 8_000
+# 200000 és suficient per discriminar easy/medium i prou ràpid per a generate.
+LIMIT_ESTATS = 200_000
  
  
 # ---------------------------------------------------------------------------
