@@ -1,8 +1,11 @@
 """
-Donat un puzzle, genera el graf resultant en un fitxer .graphml
-de forma ultra ràpida mitjançant add_edge_list.
+Donat un puzzle, genera el graf resultant en un fitxer .graphml.
+Fa una cerca en DFS, de manera que retorna tots els possibles nodes i arestes.
+Els nodes representen els estats del puzzle, i les arestes, si es possible passar d'un estat a un altre del puzzle,
+amb un sol moviment vàlid.
 
-Ús: python3 graph.py <puzzle.json>
+Ús: 
+    python3 graph.py <puzzle.json>
 """
 
 from __future__ import annotations
@@ -22,8 +25,11 @@ StateKey = str
 
 def state_key(puzzle: Puzzle, estat: State | StateKey) -> StateKey:
     """
-    Manté compatibilitat amb funcions externes esperant string,
-    però reutilitzant canonical_key.
+    Genera una representació en cadena de text (string) de l'estat actual.
+    
+    Pre: 'puzzle' és un Puzzle vàlid i 'estat' és un objecte State o un StateKey existent.
+    Post: Retorna un string únic que actua com a identificador del node,
+          reutilitzant l'agrupació de peces de canonical_key per evitar l'explosió d'estats.
     """
     if isinstance(estat, str):
         return estat
@@ -35,32 +41,34 @@ def generar_graf(
     limit_estats: int | None = None
 ) -> tuple[gt.Graph, list[gt.Vertex]]:
     """
-    Genera el graf del puzzle processant la cerca en Python
-    i construint el graf de graph-tool en bloc.
-
-    Si s'indica limit_estats, talla l'exploració per evitar
-    col·lapse de memòria en puzles gegants.
+    Construeix el graf d'estats del puzzle explorant els moviments possibles
+    i utilitzant graph-tool per a una creació en bloc altament eficient.
+    
+    Pre: 'puzzle' és un objecte Puzzle vàlid. 'limit_estats' és None o un enter positiu.
+          Si es dona 'limit_estats', la construcció del graf queda reduïda a un màxim de nodes.
+    Post: Retorna una tupla (g, nodes_desti) on 'g' és el graf dirigit complet 
+          (o parcial si s'ha superat el limit_estats) i 'nodes_desti' és una llista 
+          dels vèrtexs que compleixen la condició de victòria.
     """
 
     start_state = puzzle.start
     start_key = canonical_key(puzzle, start_state)
 
-    # visited: state_key -> vertex_index
+    # Visited: state_key -> vertex_index
     visited_idx: dict[tuple, int] = {start_key: 0}
 
-    # propietats de node
+    # Propietats de node
     state_strings: list[str] = [str(start_key)]
     is_goal_list: list[bool] = [is_goal(puzzle, start_state)]
     is_start_list: list[bool] = [True]
 
-    # arestes compactes
+    # Arestes compactes
     edges_src = array("I")
     edges_dst = array("I")
 
     # DFS iteratiu
     stack: list[State] = [start_state]
 
-    # cache locals (més ràpid dins del loop)
     possible = possible_moves
     apply = apply_move
     canon = canonical_key
@@ -110,14 +118,14 @@ def generar_graf(
             append_src(curr_idx)
             append_dst(idx)
 
-    # construir graf en bloc
+    # Construcció del graf en blocs
     g = gt.Graph(directed=True)
     g.add_vertex(len(visited_idx))
 
-    # graph-tool accepta iterable de parelles
+    # S'afegeixen arestes de forma massiva, per optimitzar
     g.add_edge_list(zip(edges_src, edges_dst))
 
-    # propietats
+    # Propietats
     v_is_goal = g.new_vertex_property("bool")
     v_is_start = g.new_vertex_property("bool")
     v_state = g.new_vertex_property("string")
@@ -125,7 +133,7 @@ def generar_graf(
     v_is_goal.a = is_goal_list
     v_is_start.a = is_start_list
 
-    # string property map
+    # Mapejar els strings als nodes
     for i, s in enumerate(state_strings):
         v_state[g.vertex(i)] = s
 
@@ -133,11 +141,10 @@ def generar_graf(
     g.vp["is_start"] = v_is_start
     g.vp["state"] = v_state
 
-    # metadades del puzzle
     g.graph_properties["puzzle"] = g.new_graph_property("string")
     g.graph_properties["puzzle"] = puzzle.to_json()
 
-    # nodes objectiu
+    # Nodes objectiu
     nodes_desti = [
         g.vertex(i)
         for i, is_g in enumerate(is_goal_list)
@@ -157,7 +164,7 @@ if __name__ == "__main__":
 
     pz = Puzzle.from_json(json_path.read_text())
 
-    # sense límit → graf complet
+    # Genera el graf complet sense límits
     g, destins = generar_graf(pz)
 
     output_filename = sys.argv[1].replace(".json", ".graphml")

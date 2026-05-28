@@ -1,13 +1,19 @@
 """
-Genera un nou puzzle en format .json en base a un nivell de dificultat.
+Genera un nou puzzle en format .json en base a un nivell de dificultat, donat
+per l'usuari entre 3 possibles opcions: easy, medium o hard.
 
-Aquesta versió clona l'estructura matemàtica dels puzles Top-Tier (4.5+ estrelles):
-- Taulells de 5x6 o 6x5.
-- Densitat mil·limètrica (deixant entre 3 i 5 caselles lliures). Rebuig estricte si no s'assoleix.
+També es poden afegir parets, dos objectius i les dues coses a la vegada o cap.
+
+Característiques del generador:
+- Taulells de 5x6 o 6x5 pel nivell "hard", menors en el cas "medium" i "easy".
+- Densitat mil·limètrica (deixant entre 3 i 5 caselles lliures, pels nivells hard). Rebuig estricte si no s'assoleix.
 - Parets estrictament CENTRALS per crear colls d'ampolla.
 - Ús de formes complexes (L, T, Z) combinades amb peces petites.
 - Generació Forward: Col·loca la peça més gran i l'envia a la cantonada oposada.
 - Suporta els flags opcionals [wall] i [multigoal].
+
+Ús: 
+    python3 generate.py <easy/medium/hard> [wall] [multigoal] <nom_puzzle>
 """
 
 from __future__ import annotations
@@ -22,9 +28,7 @@ from puzzle import Puzzle, Piece, State
 from eval import avaluar_puzzle, imprimir_avaluacio
 from logic import possible_moves
 
-# ---------------------------------------------------------------------------
 # Catàleg de formes complet
-# ---------------------------------------------------------------------------
 
 FORMES_CATALEG: list[list[tuple[int, int]]] = [
     [(0, 0)], [(0, 0), (1, 0)], [(0, 0), (0, 1)],
@@ -43,14 +47,19 @@ FORMES_CATALEG: list[list[tuple[int, int]]] = [
     [(0, 0), (1, 0), (1, 1), (2, 1)], [(0, 1), (0, 2), (1, 0), (1, 1)],
 ]
 
+# Peces més petites, en cas que el generador tingui problemes per tenir el taulell molt ple
 _FALLBACKS = [[(0, 0), (0, 1)], [(0, 0), (1, 0)], [(0, 0)]]
 
-# ---------------------------------------------------------------------------
 # Configuració dels nivells de dificultat
-# ---------------------------------------------------------------------------
 
 @dataclass
 class NivellConfig:
+    """
+    Estructura de dades que defineix els paràmetres de generació per a cada nivell de dificultat.
+    """
+
+    # Declaració d'atributs
+
     dimensions: list[tuple[int, int]]
     ocupacio: float
     pesos_mida: dict[int, int]
@@ -81,11 +90,15 @@ NIVELLS: dict[str, NivellConfig] = {
     ),
 }
 
-# ---------------------------------------------------------------------------
 # Funcions auxiliars
-# ---------------------------------------------------------------------------
 
 def _forma_ponderada(pesos_mida: dict[int, int]) -> list[tuple[int, int]]:
+    """
+    Selecciona una forma aleatòria del catàleg ponderada pels pesos especificats.
+    
+    Pre: 'pesos_mida' és un diccionari vàlid que relaciona la mida de la peça amb el seu pes probabilístic.
+    Post: Retorna una llista de coordenades corresponent a una forma triada a l'atzar segons els pesos.
+    """
     formes_valides = [f for f in FORMES_CATALEG if pesos_mida.get(len(f), 0) > 0]
     pesos = [pesos_mida.get(len(f), 0) for f in formes_valides]
     return random.choices(formes_valides, weights=pesos, k=1)[0]
@@ -93,6 +106,15 @@ def _forma_ponderada(pesos_mida: dict[int, int]) -> list[tuple[int, int]]:
 def _trobar_objectiu_lluny(
     peça: Piece, pos_actual: tuple[int, int], ocupades: set[tuple[int, int]], W: int, H: int
 ) -> tuple[int, int] | None:
+    """
+    Cerca una posició objectiu (meta) per a una peça que estigui el més lluny possible 
+    de la seva posició inicial, sense solapar-se amb les caselles ja ocupades.
+    
+    Pre: 'peça' és un peça (Piece) vàlida, 'pos_actual' està dins del taulell WxH, i 
+         'ocupades' és un conjunt de coordenades inaccessibles (ex: parets o altres metes).
+    Post: Retorna la coordenada (x, y) de la meta ideal a una distància Manhattan >= 3. 
+          Si no hi ha cap posició vàlida lliure, retorna None.
+    """
     max_dx = max(dx for dx, _ in peça.coords)
     max_dy = max(dy for _, dy in peça.coords)
 
@@ -105,7 +127,7 @@ def _trobar_objectiu_lluny(
                 continue
                 
             dist = abs(gx - pos_actual[0]) + abs(gy - pos_actual[1])
-            # Forcem que la meta estigui a una distància mínima per evitar solucions trivials
+            # Forcem que la meta estigui a una distància mínima per evitar solucions trivials, i obtenir-ne millors puzzles
             if dist >= 3: 
                 opcions.append((dist, (gx, gy)))
 
@@ -115,11 +137,18 @@ def _trobar_objectiu_lluny(
     opcions.sort(reverse=True)
     return opcions[0][1]
 
-# ---------------------------------------------------------------------------
 # Generació principal del puzzle (FORWARD GENERATION)
-# ---------------------------------------------------------------------------
 
 def generar_puzzle(cfg: NivellConfig, amb_parets: bool, multigoal: bool) -> Puzzle | None:
+    """
+    Genera un únic intent de puzzle aplicant l'estratègia de col·locació descrita.
+    Introdueix parets i/o múltiples objectius dinàmicament si estan activats.
+    
+    Pre: 'cfg' és un NivellConfig vàlid. 'amb_parets' i 'multigoal' són booleans.
+    Post: Retorna un objecte Puzzle vàlid si aconsegueix arribar a la densitat exigida 
+          i assignar les metes correctament. Si el generador es bloqueja matemàticament 
+          abans d'hora, retorna None.
+    """
     W, H = random.choice(cfg.dimensions)
 
     walls_list: list[tuple[int, int]] = []
@@ -141,22 +170,21 @@ def generar_puzzle(cfg: NivellConfig, amb_parets: bool, multigoal: bool) -> Puzz
     
     area_total = W * H - len(walls)
     
-    # --- OXIGEN DINÀMIC EQUILIBRAT ---
+    # Reducció de l'ocupació (oxigen), en cas que hi hagi parets
     marge_oxigen = 0.035 if cfg.ocupacio >= 0.85 else 0.05
     
     if amb_parets:
-        # La paret bloqueja tant que necessitem baixar l'ocupació real un 6%
+        # Es baixa l'ocupació un 6% addicional per l'aparició de parets en el puzzle
         marge_oxigen += 0.06 
     if amb_parets and multigoal:
-        # Si a més hi ha 2 objectius, donem un 3% extra de respir
+        # S'afegeix un 3% més d'espai lliure (oxigen), si a més hi ha múltiples objectius
         marge_oxigen += 0.03
         
     ocupacio_real = cfg.ocupacio - marge_oxigen
     area_max = int(area_total * ocupacio_real)
 
-    # --- LUBRICANT DE PECES ---
-    # Si hi ha parets, afegim "lubricant" (més probabilitat de peces 1x1) 
-    # perquè les peces grans puguin maniobrar al voltant de l'obstacle.
+    # Si hi ha parets, s'afegeixen més peces petites, per poder tenir més maniobra amb les peces grans
+    # al voltant del mur en el puzzle
     pesos_usar = cfg.pesos_mida.copy()
     if amb_parets:
         if cfg.ocupacio >= 0.85: # En nivell Hard
@@ -177,7 +205,7 @@ def generar_puzzle(cfg: NivellConfig, amb_parets: bool, multigoal: bool) -> Puzz
         if area_actual == 0:
             forma_coords = forma_inicial
         else:
-            forma_coords = _forma_ponderada(pesos_usar) # Usem els pesos amb lubricant
+            forma_coords = _forma_ponderada(pesos_usar) # Usem els nous pesos
             
         pos = None
         for candidata in [forma_coords] + _FALLBACKS:
@@ -217,7 +245,7 @@ def generar_puzzle(cfg: NivellConfig, amb_parets: bool, multigoal: bool) -> Puzz
     idx_peces = sorted(range(len(peces_final)), key=lambda i: len(peces_final[i].coords), reverse=True)
     
     goals_list = []
-    # Creem un set dinàmic que comença amb les parets
+    # Creem un conjunt dinàmic que comença amb les parets
     ocupades_metes = set(walls)
     
     for i in range(min(nombre_objectius, len(idx_peces))):
@@ -226,7 +254,7 @@ def generar_puzzle(cfg: NivellConfig, amb_parets: bool, multigoal: bool) -> Puzz
         
         if pos_meta is not None:
             goals_list.append((idx, pos_meta))
-            # ACTUALITZACIÓ CLAU: Afegim les caselles d'aquesta meta a les 'ocupades'
+            # Afegim les caselles d'aquesta meta a les 'ocupades'
             # perquè el següent objectiu no es col·loqui a sobre
             for dx, dy in peces_final[idx].coords:
                 ocupades_metes.add((pos_meta[0] + dx, pos_meta[1] + dy))
@@ -243,11 +271,18 @@ def generar_puzzle(cfg: NivellConfig, amb_parets: bool, multigoal: bool) -> Puzz
         W=W, H=H, walls=walls, pieces=peces_final, start=State(posicions_final), goals=goals
     )
 
-# ---------------------------------------------------------------------------
 # Cerca del millor puzzle
-# ---------------------------------------------------------------------------
 
 def generar_millor_puzzle(cfg: NivellConfig, nivell: str, amb_parets: bool, multigoal: bool) -> tuple[Puzzle, dict]:
+    """
+    Bucle de cerca iterativa que genera múltiples puzzles i avalua cadascun d'ells
+    fins a assolir la nota objectiu del nivell. Aquesta puntuació és estipulada per cfg, el nivell
+    de la classe
+    
+    Pre: 'cfg' conté el nombre màxim d'intents i la puntuació mínima desitjada.
+    Post: Retorna una tupla (Puzzle, diccionari_resultats) amb el millor puzzle trobat. 
+          Si no en troba cap de resoluble en tots els intents, atura el procés amb sys.exit(1).
+    """
     millor_puzzle: Puzzle | None = None
     millor_resultat: dict = {"puntuacio": -1.0}
 
@@ -316,7 +351,7 @@ if __name__ == "__main__":
     print(f"Generant puzzle '{nom_arxiu}' [nivell: {nivell.upper()}]{extres}...")
     millor, resultat = generar_millor_puzzle(cfg, nivell, amb_parets, multigoal)
 
-    # --- LÒGICA PER DESAR A LA CARPETA 'puzzles' ---
+    # Desar el puzzle a la carpeta "puzzles"
     DEST_FOLDER = "puzzles"
     if not os.path.exists(DEST_FOLDER):
         os.makedirs(DEST_FOLDER)

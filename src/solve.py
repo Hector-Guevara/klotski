@@ -1,7 +1,10 @@
 """
 Donat un puzzle, el resol de forma òptima i extremadament ràpida.
- 
-Ús: python3 solve.py <puzzle.json>
+Aplica l'algorisme A*, seguint l'Heurística de la distància de Manhattan,
+sense necessitat d'haver de calcular tot el graf sencer. 
+
+Ús: 
+    python3 solve.py <puzzle.json>
 """
  
 from puzzle import Puzzle, State
@@ -19,6 +22,13 @@ def heuristica(pz: Puzzle, estat: State) -> int:
     """
     Calcula la distància Manhattan mínima de les peces objectiu 
     a les seves posicions finals.
+
+    h(estat) = |x_actual - x_meta| + |y_actual - y_meta|
+    
+    Pre: 'pz' té un o més objectius definits a pz.goals i 'estat' conté 
+         les posicions vàlides de totes les peces.
+    Post: Retorna un enter >= 0 que representa el cost estimat per arribar 
+          a la solució. Aquest valor és admissible (mai sobreestima el cost real).
     """
     h = 0
     for p_idx, pos_final in pz.goals:
@@ -31,9 +41,12 @@ def heuristica(pz: Puzzle, estat: State) -> int:
 def canonical_key(pz: Puzzle, estat: State) -> tuple:
     """
     Genera una clau canònica per a l'estat que agrupa les peces idèntiques
-    que NO són objectiu. Això redueix l'espai de cerca dràsticament
-    (evitant l'explosió combinatòria del Klotski) però manté la identitat 
-    exacta de les peces objectiu per garantir l'optimalitat.
+    que no són objectiu, reduint així l'espai de cerca dràsticament
+    però manté la identitat exacta de les peces objectiu per garantir l'optimalitat.
+    
+    Pre: 'pz' és un objecte Puzzle vàlid i 'estat' el seu State actual.
+    Post: Retorna una tupla única que representa l'estat. Si dues peces no-objectiu 
+          idèntiques s'intercanvien de posició, la clau generada serà idèntica.
     """
     goal_indices = {g[0] for g in pz.goals}
     groups = {}
@@ -45,7 +58,7 @@ def canonical_key(pz: Puzzle, estat: State) -> tuple:
             shape_key = ("GOAL", i)
         else:
             # Les peces normals s'agrupen per la seva forma.
-            # No ens importa QUINA peça de 1x1 movem, només on estan.
+            # No ens importa quina peça no objectiu es mou, només on està.
             shape_key = ("NORMAL", piece.coords)
         
         if shape_key not in groups:
@@ -62,8 +75,13 @@ def canonical_key(pz: Puzzle, estat: State) -> tuple:
 
 def _a_star_real(pz: Puzzle, max_estats: Optional[int] = None) -> Optional[list]:
     """
-    Cerca A* (A-Estrella) sobre els estats reals utilitzant la clau
-    canònica híbrida per a la memòria de visitats.
+    Executa l'algorisme de cerca A* (A-Estrella) sobre l'espai d'estats reals 
+    utilitzant la clau canònica híbrida per a la memòria de visitats.
+    
+    Pre: 'pz' és un Puzzle vàlid. 'max_estats' pot limitar la quantitat de nodes a explorar.
+    Post: Retorna una llista de moviments (camí òptim) per resoldre el puzzle. 
+          Cada moviment és una llista [índex_peça, direcció, distància]. 
+          Retorna None si el puzzle no té solució o s'excedeix 'max_estats'.
     """
     estat_inicial = pz.start
  
@@ -117,6 +135,13 @@ def _a_star_real(pz: Puzzle, max_estats: Optional[int] = None) -> Optional[list]
  
  
 def solucio_puzzle(pz: Puzzle, output_path: Path) -> None:
+    """
+    Calcula i desa la solució final d'un puzzle en un fitxer JSON.
+    
+    Pre: 'pz' és un puzzle resoluble i 'output_path' és una ruta d'arxiu vàlida.
+    Post: S'escriu un array JSON a 'output_path' que conté l'ordre de moviments 
+          per arribar a la victòria. Llança una asserció si el puzzle no té solució.
+    """
     solucio_final = _a_star_real(pz)
     assert solucio_final is not None, "El puzzle és resoluble però l'A* no ha trobat solució"
  

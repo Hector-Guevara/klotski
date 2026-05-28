@@ -8,10 +8,6 @@ El flux és el següent:
  
 Ús:
     python3 upload.py <puzzle.json> <token>
-
-    comanda en el shell de python per utilitzar-lo:
-
-    python src/upload.py puzzles/mi_puzzle.json token
  
 El servidor afegeix el puzzle a la llista. Si ja hi ha més de 200 puzzles,
 substitueix a l'atzar un dels puzzles amb valoració més baixa.
@@ -28,31 +24,25 @@ from pathlib import Path
  
 from puzzle import Puzzle
 from eval import avaluar_puzzle, imprimir_avaluacio
- 
-# ---------------------------------------------------------------------------
-# Configuració del repositori (mateixa base que download.py i rate.py)
-# ---------------------------------------------------------------------------
- 
-BASE_URL = "https://klotski.pauek.dev/api/puzzles"
- 
- 
- 
-# ---------------------------------------------------------------------------
+from download import BASE_URL
+
 # Funcions de comunicació amb el repositori
-# ---------------------------------------------------------------------------
  
 def enviar_puzzle(pz: Puzzle, token: str) -> str:
     """
-    Envia un puzzle nou al repositori via POST autenticat amb el token Bearer.
-    Retorna l'ID assignat pel servidor al puzzle enviat.
+    Envia un puzzle instanciat al repositori via petició POST autenticada.
+    
+    Pre: 'pz' és un objecte Puzzle vàlid preparat per a ser serialitzat. 
+         'token' és una cadena de text d'autenticació (Bearer) vàlida.
+    Post: Retorna l'ID assignat pel servidor al puzzle (string). Si la connexió falla, 
+          el token és invàlid (HTTP 401) o hi ha errors de servidor, s'informa 
+          l'usuari per pantalla i s'atura l'execució (sys.exit(1)).
     """
-    # es serialitza el puzzle al format JSON estàndard de la pràctica.
-    # El servidor espera el puzzle directe a l'arrel ({"W":...,"H":...}),
-    # no embolcallat. L'embolcall {"puzzle":..., "stars":...} és només
-    # el format de la resposta GET, no del POST.
+    # Es serialitza el puzzle al format JSON estàndard de la pràctica.
+
     cos = pz.to_json().encode()
  
-    # es construeix la petició POST amb el token a la capçalera d'autenticació
+    # Es construeix la petició POST amb el token a la capçalera d'autenticació
     peticio = urllib.request.Request(
         BASE_URL,
         data=cos,
@@ -67,19 +57,19 @@ def enviar_puzzle(pz: Puzzle, token: str) -> str:
         with urllib.request.urlopen(peticio) as response:
             resposta_raw = response.read().decode()
  
-        # el servidor retorna l'ID del puzzle creat; pot venir com a JSON o com a string pla
+        # El servidor retorna l'ID del puzzle creat; pot venir com a JSON o com a string pla
         try:
             resposta = json.loads(resposta_raw)
-            # si la resposta és un dict amb un camp 'id', l'extraiem
+            # Si la resposta és un dict amb un camp 'id', l'extraiem
             puzzle_id = resposta.get("id", resposta_raw) if isinstance(resposta, dict) else str(resposta)
         except json.JSONDecodeError:
-            # si no és JSON vàlid, tractem la resposta com a ID directament
+            # Si no és JSON vàlid, tractem la resposta com a ID directament
             puzzle_id = resposta_raw.strip()
  
         return puzzle_id
  
     except urllib.error.HTTPError as e:
-        # es llegeix el cos de l'error per mostrar el missatge del servidor
+        # Es llegeix el cos de l'error per mostrar el missatge del servidor
         detall = e.read().decode() if e.fp else ""
         print(f"Error HTTP {e.code} en enviar el puzzle: {e.reason}")
         if detall:
@@ -90,37 +80,39 @@ def enviar_puzzle(pz: Puzzle, token: str) -> str:
         sys.exit(1)
  
  
-# ---------------------------------------------------------------------------
 # Flux principal
-# ---------------------------------------------------------------------------
  
 def pujar_puzzle(puzzle_path: Path, token: str) -> None:
     """
-    Orquestra el flux complet: llegeix, avalua i envia el puzzle al repositori.
+    Orquestra el flux complet: lectura del fitxer, avaluació matemàtica i enviament.
+    
+    Pre: 'puzzle_path' apunta a un fitxer local existent amb extensió .json i format vàlid.
+         'token' és una cadena de text per a l'autenticació.
+    Post: S'instancia el puzzle, s'hi aplica eval.py mostrant-ne els resultats per terminal, 
+          i finalment s'envia a l'API. Imprimeix l'ID assignat un cop finalitzat.
     """
- 
-    # pas 1: lectura i validació del fitxer local
-    # Puzzle.from_json ja llença ValueError si el format és incorrecte
+
+    # Pas 1: lectura i validació del fitxer local
     print(f"Llegint puzzle des de '{puzzle_path}'...")
     try:
-        pz = Puzzle.from_json(puzzle_path.read_text())
+        pz = Puzzle.from_json(puzzle_path.read_text())  # ValueError si el format és incorrecte
     except (ValueError, KeyError) as e:
         print(f"Error en llegir el puzzle: {e}")
         sys.exit(1)
  
     print(f"Puzzle vàlid: {pz.W}×{pz.H}, {len(pz.pieces)} peces, {len(pz.goals)} objectiu(s)")
  
-    # pas 2: avaluació automàtica per informar l'usuari de la qualitat del puzzle
+    # Pas 2: avaluació automàtica per informar l'usuari de la qualitat del puzzle
     print("\nAvaluant el puzzle abans d'enviar...")
     resultat = avaluar_puzzle(pz)
     imprimir_avaluacio(pz, resultat)
  
-    # avisem si la puntuació és molt baixa, però no bloquejem l'enviament
+    # Si la puntuació és baixa, s'avisa a l'usuari, però no interromp la publicació del puzzle
     if resultat["puntuacio"] < 1.0:
         print("\n⚠️  Advertència: la puntuació és baixa (< 1.0). El puzzle pot ser poc interessant.")
         print("   Continuant l'enviament igualment...")
  
-    # pas 3: enviament al repositori
+    # Pas 3: enviament al repositori
     print(f"\nEnviant puzzle al repositori ({BASE_URL})...")
     puzzle_id = enviar_puzzle(pz, token)
  
@@ -128,10 +120,7 @@ def pujar_puzzle(puzzle_path: Path, token: str) -> None:
     print(f"  ID assignat: {puzzle_id}")
     print(f"  Puntuació:   {resultat['puntuacio']:.2f} / 5.00")
  
- 
-# ---------------------------------------------------------------------------
 # Punt d'entrada
-# ---------------------------------------------------------------------------
  
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -149,7 +138,7 @@ if __name__ == "__main__":
  
     args = parser.parse_args()
  
-    # comprovem que el fitxer existeix abans de fer res
+    # Comprovem que el fitxer existeix abans de fer res
     if not args.puzzle.exists():
         print(f"Error: no s'ha trobat el fitxer '{args.puzzle}'")
         sys.exit(1)

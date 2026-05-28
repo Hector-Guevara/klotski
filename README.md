@@ -225,6 +225,33 @@ En temps real es mostra cada intent, de manera que l'usuari pot veure com progre
 
 ***
 
+## Generació de Puzzles Especials: `generate_mimic.py`
+
+### Què fa
+
+Genera puzzles especials nous en format `.json`, de mida 5x5. Aquests puzzles tenen la característica especial que totes les peces que el conformen tenen una posició final objectiu. La composició donada, es mostra en el taulell de sota, amb peces que no es poden moure. Per tant, el jugador tracta d'imitar la forma donada a sota. Aquest tipus de puzzle, l'hem decidit anomenar **Puzzle Mimic**. La interfície és:
+
+```bash
+python src/generate_mimic.py el_meu_puzzle_mimic
+python src/generate_mimic.py el_meu_puzzle_mimic
+```
+
+El programa sempre genera el mateix tipus de puzzle: Un puzzle 5x5 amb un 80% de l'ocupació, sense barreres, i amb totes les peces amb un objectiu propi, el de imitar el taulell de sota. Tots els puzzles es desen automàticament a la carpeta `puzzles/`.
+
+### Herència de generate.py
+
+El programa fa servir gairebé el mateix sistema de generació de puzzles que ja feia servir `generate.py`, amb la diferència, que no hi ha distinció per nivells, ni possibilitat d'afegir parets o obstacles, per facilitar la visualització de la part de sota del taulell.
+
+En la visualització, el taulell es tracta d'un 11x5, ja que es composa per dos taulells 5x5, i la fila intermitja està composada per barreres, per separar la visualització del taulell a copiar de la del que pot moure l'usuari. El taulell superior representa l'**estat inicial**, i les peces que pot moure el jugador, mentre que el taulell inferior, representa l'**estat final**, amb peces que no es poden moure.
+
+Per tant, el flux de treball és el següent:
+1. **Generació d'un puzzle 5x5**: es crida a `generar_puzzles`, funció de `generate.py`, que fa que es generin els puzzles i s'avaluïn de la mateixa forma que es feien en aquest arxiu. Es considera com a "apte" en aquest cas, un puzzle que superi la puntuació de 2.5 estrelles.
+2. **Construcció del model**: es crea el tauler de sota, que serà el model a seguir pel jugador, per tractar de deixar les peces en la mateixa posició. Segueix com a model inicial la dificultat `medium` de generate.py, però amb una major ocupació (80%). Les peces es col·loquen en la disposició de les metes de les peces en el taulell superior. La resta d'espai, s'omple amb parets, per assegurar-se que el jugador no el pugui moure.
+
+Aquesta subvarietat de puzzle, hereda tot el catàleg de peces de `generate.py`, i la resta de característiques destacables. Es tracta d'una versió de puzzles més experimental, per ordenar no només una, sino que totes les peces, mantenint sempre visible la referència final. Es poden fer un màxim de 150 intents, fins aconseguir el millor de tots.
+
+***
+
 ## Resolució Òptima: `solve.py`
 
 ### Què fa i per què no usa el graf
@@ -243,7 +270,7 @@ h(estat) = |x_actual - x_meta| + |y_actual - y_meta|
 
 Aquesta estimació mai sobreestima el cost real, perquè en el millor cas imaginable — sense cap obstacle, en línia recta — la peça objectiu trigaria exactament tants moviments com la seva distància de Manhattan. La realitat sempre és igual o pitjor (hi ha peces que bloquegen el camí). Amb una estimació que mai sobreestima, l'A* garanteix sempre la solució **òptima** — mai una seqüència de moviments més llarga del mínim necessari. Aquesta propietat és exactament equivalent a la que oferiria el `shortest_path` sobre el graf, però sense el cost de construir-lo.
 
-En la pràctica, per a puzzles `medium` típics, l'A* troba la solució òptima explorant menys d'un 10% de les posicions que exploraria una cerca exhaustiva. Per a puzzles `hard` la millora és encara més gran.
+En la pràctica, per a puzzles `medium` típics, l'A* troba la solució òptima explorant menys d'un 10% de les posicions que exploraria una cerca exhaustiva. Per a puzzles `hard` la millora és encara més gran. Tot i això, inclou una possible limitació dels estats, utilitzada pels puzzles generats a travès de `generate.py`, per garantir que els nostres puzzles tenen solució visitant sempre els primers 500.000 estats del Puzzle. Aquesta restricció no s'aplica en l'avaluació de puzzles del repositori.
 
 ### La clau que redueix l'espai de cerca
 
@@ -427,8 +454,6 @@ El sistema construït és un pipeline complet que va des de la generació fins a
 ---
 
 ---
-
-<div id="contrib" />
 
 ## Crèdits i Autors
 

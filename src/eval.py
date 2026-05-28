@@ -16,7 +16,8 @@ Estratègia de velocitat:
     parcial. Si el node destí no és assolible dins del límit, es fa servir
     l'A* de solve.py com a fallback.
  
-Ús: python3 eval.py <puzzle.json>
+Ús: 
+    python3 eval.py <puzzle.json>
 """
  
 from __future__ import annotations
@@ -53,32 +54,74 @@ LIMIT_ESTATS = 200_000
 # Mètriques individuals
  
 def _normalitzar(valor: float, maxim: float) -> float:
+    """
+    Escala un valor linealment assegurant que quedi acotat entre 0.0 i 1.0.
+    
+    Pre: 'valor' >= 0, 'maxim' > 0.
+    Post: Retorna un float a l'interval [0.0, 1.0].
+    """    
+
     if maxim <= 0:
         return 0.0
     return min(valor / maxim, 1.0)
  
  
 def score_longitud(longitud_optima: int) -> float:
+    """
+    Avalua la dificultat basada en la quantitat de moviments per resoldre'l.
+    
+    Pre: 'longitud_optima' >= 0.
+    Post: Retorna la puntuació normalitzada [0.0, 1.0].
+    """
+
     return _normalitzar(longitud_optima, LONGITUD_MAX_REF)
  
  
 def score_espai(num_estats: int) -> float:
+    """
+    Avalua la complexitat de l'espai d'estats (possibles estats del puzzle, és a dir, nodes del graf).
+    
+    Pre: 'num_estats' >= 0.
+    Post: Retorna la puntuació normalitzada [0.0, 1.0].
+    """
     return _normalitzar(num_estats, ESTATS_MAX_REF)
  
  
 def score_unicitat(num_solucions: int) -> float:
+    """
+    Premia els puzzles amb poques solucions, on el jugador no pot resoldre'l "per casualitat".
+    És a dir, premia els puzzles que tenen pocs camins possibles fins arribar a la solució.
+    Usa una escala logarítmica invertida per penalitzar ràpidament l'excés de solucions.
+    
+    Pre: 'num_solucions' >= 0.
+    Post: Retorna un valor [0.0, 1.0]. Retorna 1.0 si només hi ha 1 solució.
+    """
     if num_solucions <= 0:
         return 0.0
     return 1.0 / math.log2(1 + num_solucions)
  
  
 def score_eficiencia(longitud_optima: int, num_estats: int) -> float:
+    """
+    Mesura la profunditat del camí respecte a la mida del graf. Un puzzle on
+    cal explorar gairebé tots els estats per trobar la solució és molt eficient.
+    
+    Pre: 'longitud_optima' >= 0 i 'num_estats' >= 0.
+    Post: Retorna un valor [0.0, 1.0] basat en la relació logarítmica de profunditat.
+    """
     if num_estats <= 0 or longitud_optima <= 0:
         return 0.0
     return math.log2(1 + longitud_optima) / math.log2(1 + num_estats)
  
  
 def score_ponts(g: gt.Graph) -> float:
+    """
+    Avalua la presència de "colls d'ampolla" al graf. Les arestes pont representen
+    moviments obligatoris (si no es fan, és impossible arribar a la solució).
+    
+    Pre: 'g' és un objecte Graph vàlid de graph_tool.
+    Post: Retorna la puntuació normalitzada [0.0, 1.0] depenent de la quantitat de ponts.
+    """
     g_no_dir = gt.GraphView(g, directed=False)
     _, arestes_pont, _ = gt.label_biconnected_components(g_no_dir)
     num_ponts = int(arestes_pont.a.sum())
@@ -89,11 +132,15 @@ def score_ponts(g: gt.Graph) -> float:
  
 def avaluar_puzzle(pz: Puzzle, limit_estats: int | None = LIMIT_ESTATS) -> dict:
     """
-    Avalua un puzzle de forma ràpida:
-      1. Genera el graf fins a limit_estats nodes (talla si és massa gran).
-      2. Extreu num_estats, num_solucions i ponts del graf parcial.
-      3. Calcula la longitud òptima amb shortest_distance sobre el graf.
-         Si el destí no és assolible dins del límit, fa servir A* com a fallback.
+    Calcula de forma eficient totes les mètriques d'un puzzle i en retorna la nota final.
+    
+    Intenta resoldre'l primer creant un graf parcial. 
+    Si la solució queda fora del límit de generació de nodes, salta a un A* pur per trobar-la.
+    Pot tenir límit d'estats opcional també en la resolució del A*, per evitar possibles bloquejos
+    
+    Pre: 'pz' és un Puzzle vàlid. 'limit_estats' és un enter positiu o None.
+    Post: Retorna un diccionari amb les dades de resolubilitat, els valors absoluts 
+          de cada mètrica, les puntuacions parcials [0.0, 1.0] i la nota final [0.0, 5.0].
     """
     # Graf parcial
     g, nodes_desti = generar_graf(pz, limit_estats=limit_estats)

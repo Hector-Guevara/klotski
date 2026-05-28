@@ -20,22 +20,17 @@ import urllib.request
 import urllib.error
 
 from rate import valorar_puzzle
+from download import BASE_URL
 
-# ---------------------------------------------------------------------------
-# Configuració del repositori
-# ---------------------------------------------------------------------------
-
-BASE_URL = "https://klotski.pauek.dev/api/puzzles"
-
-
-# ---------------------------------------------------------------------------
 # Llista de puzzles
-# ---------------------------------------------------------------------------
 
 def descarregar_llista_puzzles() -> list[str]:
     """
     Retorna la llista de tots els IDs de puzzles disponibles al repositori.
     El servidor respon amb un array JSON de strings: ["id1", "id2", ...].
+    Pre: El servidor a BASE_URL està operatiu i retorna un JSON amb un array de strings.
+    Post: Retorna una llista amb els IDs. En cas de fallada de xarxa o protocol HTTP, 
+          informa l'usuari i atura l'execució de l'script.
     """
     try:
         with urllib.request.urlopen(BASE_URL) as response:
@@ -48,14 +43,18 @@ def descarregar_llista_puzzles() -> list[str]:
         sys.exit(1)
 
 
-# ---------------------------------------------------------------------------
 # Flux principal
-# ---------------------------------------------------------------------------
 
 def valorar_tots(token: str, puntuacio_manual: int | None, skip_errors: bool) -> None:
     """
     Descarrega la llista completa de puzzles i avalua/valora cadascun
     delegant en `valorar_puzzle` de rate.py.
+    Si es dona 'puntuacio_manual', s'avaluen tots els puzzles del repositori amb la mateixa nota.
+    Si es donw 'skip_errors', salta al següent puzzle en cas que hi hagi algun problema amb algun puzzle anterior.
+    Pre: 'token' és una cadena d'autenticació vàlida. 'puntuacio_manual' és un enter [0-5] 
+         o None. 'skip_errors' determina el comportament davant d'una fallada individual.
+    Post: S'han avaluat i valorat els puzzles i s'imprimeix un resum final per terminal 
+          indicant els èxits i els errors recollits.
     """
     print("Obtenint la llista de puzzles del repositori...")
     ids = descarregar_llista_puzzles()
@@ -92,9 +91,7 @@ def valorar_tots(token: str, puntuacio_manual: int | None, skip_errors: bool) ->
             print(f"  • {pid[:12]}... → {msg}")
 
 
-# ---------------------------------------------------------------------------
 # Punt d'entrada
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

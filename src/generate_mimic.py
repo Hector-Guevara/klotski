@@ -10,7 +10,7 @@ Lògica:
    Totes les peces copiïn el model.
 
 Ús per generar un puzzle:
-    python3 src/generate-mimic.py puzzles/el_meu_mimic
+    python3 src/generate_mimic.py <nom_puzzle>
 """
 
 from __future__ import annotations
@@ -22,21 +22,23 @@ from pathlib import Path
 from puzzle import Puzzle, State
 from eval import avaluar_puzzle, imprimir_avaluacio
 from logic import possible_moves, apply_move
-
-# --- REUTILITZACIÓ EXTREMA (DRY) ---
-# Importem directament la configuració i la funció generadora del teu generate.py
 from generate import generar_puzzle, NIVELLS
-# Importem el solucionador per extreure el "model"
 from solve import _a_star_real
 
-# ---------------------------------------------------------------------------
 # Construcció del Mimic a partir d'un Puzzle Base
-# ---------------------------------------------------------------------------
 
 def construir_mimic(base_pz: Puzzle, estat_final: State) -> Puzzle:
     """
     Donat un puzzle base de 5x5 i el seu estat final resolt,
     construeix el taulell Mimic complet d'11x5.
+    
+    Pre: 'base_pz' és un objecte Puzzle vàlid de 5x5. 'estat_final' és l'State
+          que representa la posició de les peces un cop resolt el puzzle base.
+    Post: Retorna un objecte Puzzle d'11x5 on la meitat superior conté les peces 
+          jugables en la seva posició inicial, la meitat inferior conté les peces
+          en la seva posició final bloquejades per parets, i la fila central (y=5) 
+          actua com a paret divisòria. Totes les peces superiors tenen com a objectiu 
+          la seva posició corresponent a la meitat inferior.
     """
     W, H = 5, 11
     
@@ -64,21 +66,21 @@ def construir_mimic(base_pz: Puzzle, estat_final: State) -> Puzzle:
     # 3. Preparació de les peces (Jugables a dalt, Model a baix)
     items = []
     for i, peça in enumerate(peces_base):
-        # Peça JUGABLE (Meitat superior). L'objectiu és on està al final.
+        # Peça jugable (Meitat superior). L'objectiu és on està al final.
         items.append({
             "piece": peça,
             "start": start_pos_top[i],
             "goal": target_pos[i]
         })
         
-        # Peça MODEL (Meitat inferior). Cimentada, sense objectiu.
+        # Peça model (Meitat inferior). Cimentada, sense objectiu.
         items.append({
             "piece": peça,
             "start": (target_pos[i][0], target_pos[i][1] + 6),
             "goal": None
         })
         
-    # L'ordenació és vital perquè l'A* i les claus canòniques funcionin bé
+    # Ordenació de les peces pel correcte funcionament dels algorismes
     items.sort(key=lambda item: (item["piece"], item["start"]))
     
     peces_final = tuple(item["piece"] for item in items)
@@ -93,11 +95,18 @@ def construir_mimic(base_pz: Puzzle, estat_final: State) -> Puzzle:
     
     return Puzzle(W=W, H=H, walls=walls, pieces=peces_final, start=State(posicions_final), goals=goals)
 
-# ---------------------------------------------------------------------------
 # Cerca del millor puzzle
-# ---------------------------------------------------------------------------
 
 def generar_millor_mimic(max_intents=150) -> tuple[Puzzle, dict]:
+    """
+    Executa un bucle de cerca per trobar un puzzle base de gran complexitat 
+    i el transforma en un puzzle Mimic.
+    
+    Pre: 'max_intents' és un enter positiu que limita el nombre de generacions.
+    Post: Retorna una tupla (Puzzle, dict_avaluacio) amb el Mimic definitiu i les
+          seves mètriques heretades. Si no es troba cap puzzle amb la dificultat
+          exigida dins del límit d'intents, l'script s'atura amb sys.exit(1).
+    """
     # Agafem la configuració 'medium' que ja genera taulells de 5x5
     cfg = NIVELLS["medium"]
     
@@ -107,7 +116,6 @@ def generar_millor_mimic(max_intents=150) -> tuple[Puzzle, dict]:
     for intent in range(1, max_intents + 1):
         print(f"  → Intent {intent:3d}/{max_intents}: Generant base 5x5... ", end="", flush=True)
         
-        # Aprofitem al 100% el generador principal!
         base_pz = generar_puzzle(cfg, amb_parets=False, multigoal=False)
         if base_pz is None:
             print("❌ Ignorat (No s'ha pogut col·locar)")
@@ -130,12 +138,10 @@ def generar_millor_mimic(max_intents=150) -> tuple[Puzzle, dict]:
 
         print(f"✅ RESOLUBLE! ({resultat.get('num_estats', '?')} estats) — Nota base: {resultat.get('puntuacio', 0):.2f}")
 
-        # Si el puzzle base és difícil (>= 2.5 estrelles), el Mimic serà un infern!
         if resultat["puntuacio"] >= 2.5:
             print(f"  ✓ Puzzle base perfecte trobat! Construint l'estat Mimic...")
             
-            # Resolem el puzzle base silenciossament per obtenir el camí òptim
-            # Li passem el límit de 500.000 per evitar qualsevol bloqueig inesperat
+            # Es resol el puzzle base amb la limitació de 500.000 estats
             cami = _a_star_real(base_pz, max_estats=500_000)
             if cami is None:
                 continue
@@ -143,17 +149,11 @@ def generar_millor_mimic(max_intents=150) -> tuple[Puzzle, dict]:
             # Calculem com queda el taulell un cop aplicats tots els moviments
             estat_final = base_pz.start
             for move in cami:
-                # 'move' és una llista [idx, direcció, distància], apply_move demana tupla
                 estat_final = apply_move(base_pz, estat_final, tuple(move))
                 
-            # Construeix el Mimic definitiu
             mimic_pz = construir_mimic(base_pz, estat_final)
             
-            # TRUC MESTRE: No avaluem mimic_pz amb eval.py!
-            # Com que ara TOTES les peces són objectius, la clau canònica d'A* no pot
-            # agrupar les peces iguals. Això fa que l'espai d'estats exploti factorialment
-            # i eval.py es rendeixi donant 0 estrelles per timeout.
-            # Com que el taulell físic és isomòrfic al base, n'heretem la nota directament.
+            # S'hereta la nota del taulell original
             resultat_mimic = resultat.copy()
             resultat_mimic["longitud_optima"] = len(cami)
             
