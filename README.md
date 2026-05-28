@@ -193,8 +193,8 @@ El sistema inclou **28 formes** de poliominós fins a mida 4 (peces d'1, 2, 3 i 
 
 | Nivell | Dimensions | Mides preferides | Densitat | Parets |
 |--------|------------|-----------------|----------|--------|
-| easy   | 4×4, 4×5   | Petites (mida 1–2) | 65%   | No     |
-| medium | 5×5        | Mitjanes (mida 1–3) | 80%  | No     |
+| easy   | 4×4, 4×5   | Petites (mida 1–2) | 65%   | Opcional     |
+| medium | 5×5        | Mitjanes (mida 1–3) | 75%  | Opcional     |
 | hard   | 5×6, 6×5   | Mixtes (mida 1–4)  | 86%  | Opcional |
 
 Les peces grans restringeixen més el taulell i generen puzzles amb menys camins alternatius. Un taulell al 86% d'ocupació deixa tan poc espai de maniobra que les peces queden gairebé encaixades entre si, obligant a seqüències de moviments llargues per desencallar la peça objectiu.
@@ -213,7 +213,7 @@ Comparat amb un enfocament que parteix de la solució i "desfà" moviments cap e
 
 ### Selecció del millor puzzle entre múltiples intents
 
-El sistema fa fins a `max_intents` intents (30 per a `easy`, 60 per a `medium`, 150 per a `hard`) i avalua cada puzzle resoluble amb `eval.py`. Es guarda el millor (nota més alta) i s'atura quan s'assoleix la nota mínima del nivell (1.0, 2.0 i 3.6 respectivament). Si cap intent arriba a la nota mínima, es retorna el millor trobat amb un avís — el programa mai falla per no trobar res prou bo.
+El sistema fa fins a `max_intents` intents (50 per a `easy`, 100 per a `medium`, 150 per a `hard`) i avalua cada puzzle resoluble amb `eval.py`. Es guarda el millor (nota més alta) i s'atura quan s'assoleix la nota mínima del nivell (1.0, 2.0 i 3.6 respectivament). Si cap intent arriba a la nota mínima, es retorna el millor trobat amb un avís — el programa mai falla per no trobar res prou bo.
 
 En temps real es mostra cada intent, de manera que l'usuari pot veure com progressa la cerca, per exemple:
 

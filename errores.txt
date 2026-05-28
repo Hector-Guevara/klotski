@@ -1,7 +1,0 @@
-Lista de errores a corregir:
-
-- generate.py hay que pulirlo, para que genere los puzzles interesantes y puedan pasar el filtro, un filtro más exigente
-
-- generate.py con diversos objetivos
-
-- Falta optimizar graph.py, para que sea más rápido

@@ -63,12 +63,12 @@ NIVELLS: dict[str, NivellConfig] = {
     "easy": NivellConfig(
         dimensions=[(4, 4), (4, 5)], ocupacio=0.65,
         pesos_mida={1: 5, 2: 4, 3: 1, 4: 0}, amb_parets=False,
-        nombre_objectius=1, puntuacio_minima=1.0, max_intents=30,
+        nombre_objectius=1, puntuacio_minima=1.0, max_intents=50,
     ),
     "medium": NivellConfig(
-        dimensions=[(5, 5)], ocupacio=0.80,
+        dimensions=[(5, 5)], ocupacio=0.75,
         pesos_mida={1: 4, 2: 5, 3: 3, 4: 1}, amb_parets=False,
-        nombre_objectius=1, puntuacio_minima=2.0, max_intents=60,
+        nombre_objectius=1, puntuacio_minima=2.0, max_intents=100,
     ),
     "hard": NivellConfig(
         dimensions=[(5, 6), (6, 5)], 
@@ -235,7 +235,7 @@ def generar_millor_puzzle(cfg: NivellConfig, nivell: str, amb_parets: bool, mult
         
         pz = generar_puzzle(cfg, amb_parets, multigoal)
         if pz is None:
-            print("❌ Ignorat (Massa forats lliures o metas invàlides)")
+            print("❌ Ignorat (Massa forats lliures o metes invàlides)")
             continue
             
         if not possible_moves(pz, pz.start):
