@@ -410,24 +410,18 @@ El JSON del graf es manté en memòria i es serveix directament al navegador sen
 
 ## Interacció amb el Repositori: `download.py`, `upload.py`, `rate.py`, `rate_all.py`
 
-### Flux general
+### Què fan
 
-El repositori compartit `https://klotski.pauek.dev/api/puzzles` té una API senzilla:
+Aquests quatre fitxers permeten participar en el repositori compartit de la pràctica, on tots els grups pugen els seus puzzles i es puntuen mútuament. El flux típic és:
+descarregar puzzles d'altres grups, avaluar-los amb `eval.py` i enviar la valoració al servidor.
 
-| Mètode | Endpoint | Acció |
-|--------|----------|-------|
-| GET | `/api/puzzles` | Llista d'IDs dels 100 millors |
-| GET | `/api/puzzles/<id>` | Descarrega un puzzle |
-| POST | `/api/puzzles` | Puja un puzzle nou |
-| POST | `/api/puzzles/<id>/votes` | Envia una valoració (1–5 estrelles) |
+El detall important és que `rate.py` i `rate_all.py` no puntuen "a mà" — fan servirdirectament `eval.py` per calcular la nota de forma automàtica i consistent. Això garanteixque totes les valoracions que enviem segueixen el mateix criteri objectiu, independent dequi hagi creat el puzzle. Com que el criteri que ha de retornar són {1,2,3,4,5} les úniques respostes possibles i per tant arredoneix al número d'estrellas més proper.
 
-El servidor retorna els puzzles embolcallats en `{"puzzle": {...}, "stars": N}`. Totes les funcions de descàrrega extreuen automàticament la part del puzzle per desar-la en format estàndard local.
+`rate_all.py` és especialment útil: aplica aquest procés a tots els puzzles del repositori d'una sola passada. Executar-lo periòdicament manté el rànquing actualitzat amb el nostre criteri sense haver de puntuar cap puzzle a mà.
 
-`download.py` gestiona tant la descàrrega individual (`download.py <id>`) com la massiva (`download.py` sense arguments), comprovant si el fitxer ja existeix per evitar descàrregues repetides.
+`upload.py` afegeix una comprovació prèvia a l'enviament: avalua el puzzle localment i avisa si la nota és baixa (< 1.0), donant l'oportunitat de descartar-lo abans de publicar-lo. `download.py` gestiona la descàrrega individual o massiva, comprovant si el fitxer ja existeix per no repetir descàrregues.
 
-`upload.py` valida el puzzle localment amb `Puzzle.from_json`, l'avalua amb `eval.py` i avisa si la nota és baixa (< 1.0), però permet enviar-lo igualment — la decisió final és de l'usuari.
-
-`rate.py` automatitza la valoració d'un puzzle: el descarrega, el puntua amb `eval.py` (arrodonint a enter per compatibilitat amb l'API) i envia la valoració. `rate_all.py` aplica el mateix procés a tots els puzzles del repositori de forma seqüencial, amb gestió d'errors i l'opció `--skip-errors` per continuar malgrat fallades individuals. Executar `rate_all.py` periòdicament manté el rànquing del repositori actualitzat amb el nostre criteri d'avaluació.
+El servidor retorna els puzzles en el format {"puzzle": {...}, "stars": N}; tots els fitxers extreuen automàticament la part del puzzle per treballar amb el format estàndard local.
 
 ***
 
