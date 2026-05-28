@@ -143,15 +143,25 @@ def generar_puzzle(cfg: NivellConfig, amb_parets: bool, multigoal: bool) -> Puzz
     
     # --- OXIGEN DINÀMIC EQUILIBRAT ---
     marge_oxigen = 0.035 if cfg.ocupacio >= 0.85 else 0.05
-    ocupacio_real = cfg.ocupacio - marge_oxigen if amb_parets else cfg.ocupacio
+    
+    if amb_parets:
+        # La paret bloqueja tant que necessitem baixar l'ocupació real un 6%
+        marge_oxigen += 0.06 
+    if amb_parets and multigoal:
+        # Si a més hi ha 2 objectius, donem un 3% extra de respir
+        marge_oxigen += 0.03
+        
+    ocupacio_real = cfg.ocupacio - marge_oxigen
     area_max = int(area_total * ocupacio_real)
 
     # --- LUBRICANT DE PECES ---
     # Si hi ha parets, afegim "lubricant" (més probabilitat de peces 1x1) 
     # perquè les peces grans puguin maniobrar al voltant de l'obstacle.
     pesos_usar = cfg.pesos_mida.copy()
-    if amb_parets and cfg.ocupacio >= 0.85:
-        pesos_usar[1] += 3
+    if amb_parets:
+        if cfg.ocupacio >= 0.85: # En nivell Hard
+            pesos_usar[1] += 4  # Més peces petites per maniobrar
+            pesos_usar[4] = max(0, pesos_usar[4] - 2) # Reduïm dràsticament les gegants
 
     peces_generades: list[Piece] = []
     posicions_inicials: list[tuple[int, int]] = []
@@ -207,13 +217,24 @@ def generar_puzzle(cfg: NivellConfig, amb_parets: bool, multigoal: bool) -> Puzz
     idx_peces = sorted(range(len(peces_final)), key=lambda i: len(peces_final[i].coords), reverse=True)
     
     goals_list = []
+    # Creem un set dinàmic que comença amb les parets
+    ocupades_metes = set(walls)
+    
     for i in range(min(nombre_objectius, len(idx_peces))):
         idx = idx_peces[i]
-        pos_meta = _trobar_objectiu_lluny(peces_final[idx], posicions_final[idx], set(walls), W, H)
+        pos_meta = _trobar_objectiu_lluny(peces_final[idx], posicions_final[idx], ocupades_metes, W, H)
+        
         if pos_meta is not None:
             goals_list.append((idx, pos_meta))
+            # ACTUALITZACIÓ CLAU: Afegim les caselles d'aquesta meta a les 'ocupades'
+            # perquè el següent objectiu no es col·loqui a sobre
+            for dx, dy in peces_final[idx].coords:
+                ocupades_metes.add((pos_meta[0] + dx, pos_meta[1] + dy))
+        else:
+            # Si un dels objectius no pot trobar lloc per culpa de parets o l'altre objectiu, descartem
+            return None 
 
-    if not goals_list:
+    if not goals_list or len(goals_list) < nombre_objectius:
         return None
 
     goals = tuple(sorted(goals_list))

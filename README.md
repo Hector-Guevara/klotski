@@ -430,12 +430,15 @@ El sistema construït és un pipeline complet que va des de la generació fins a
 
 <div id="contrib" />
 
-## Autors
+## Crèdits i Autors
+
+Projecte Base original:
+- L'arquitectura inicial, la interfície de l'API i la idea original del projecte són obra de [Pau Fernández (pauek)](https://github.com/pauek/klotski).
 
 Humans:
 
-- _Hèctor Guevara_
 - _Alejandro Duems_
+- _Hèctor Guevara_
 
 LLMs:
 

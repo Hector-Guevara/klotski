@@ -3,7 +3,7 @@ Avalua un puzzle del repositori i n'envia la valoració (0-5 estrelles reals com
  
 El flux és el següent:
   1. Descarrega el puzzle per ID des del repositori.
-  2. Calcula la puntuació automàtica amb eval.py.
+  2. Calcula la puntuació automàtica amb eval.py (sense límit d'estats).
   3. Envia la valoració al repositori via POST autenticat amb el token.
  
 Ús:
@@ -109,9 +109,9 @@ def valorar_puzzle(puzzle_id: str, token: str, puntuacio_manual: int | None) -> 
     print(f"Descarregant puzzle '{puzzle_id}'...")
     pz = descarregar_puzzle(puzzle_id)
  
-    # pas 2: avaluació automàtica (sempre es calcula per mostrar-la)
-    print("Avaluant el puzzle...")
-    resultat = avaluar_puzzle(pz)
+    # pas 2: avaluació automàtica (sense límit d'estats perquè avaluï completament)
+    print("Avaluant el puzzle (sense límit, pot trigar si és molt complex)...")
+    resultat = avaluar_puzzle(pz, limit_estats=None)
     imprimir_avaluacio(pz, resultat)
  
     # pas 3: es decideix quina puntuació s'envia (garantint ENTERS)

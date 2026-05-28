@@ -60,7 +60,7 @@ def canonical_key(pz: Puzzle, estat: State) -> tuple:
     return tuple(canonical_parts)
  
 
-def _a_star_real(pz: Puzzle) -> Optional[list]:
+def _a_star_real(pz: Puzzle, max_estats: Optional[int] = None) -> Optional[list]:
     """
     Cerca A* (A-Estrella) sobre els estats reals utilitzant la clau
     canònica híbrida per a la memòria de visitats.
@@ -82,7 +82,13 @@ def _a_star_real(pz: Puzzle) -> Optional[list]:
     clau_inicial = canonical_key(pz, estat_inicial)
     distancies = {clau_inicial: 0}
  
+    estats_explorats = 0
+ 
     while cua:
+        estats_explorats += 1
+        if max_estats is not None and estats_explorats > max_estats:
+            return None
+            
         f, _, g, estat, cami = heapq.heappop(cua)
  
         if is_goal(pz, estat):

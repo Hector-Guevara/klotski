@@ -14,7 +14,7 @@ Estratègia de velocitat:
     (comportament correcte: un puzzle amb >LIMIT_ESTATS estats és màxim).
   - La longitud òptima s'obté sempre amb shortest_distance sobre el graf
     parcial. Si el node destí no és assolible dins del límit, es fa servir
-    l'A* de solve.py com a fallback (molt ràpid gràcies a la heurística).
+    l'A* de solve.py com a fallback.
  
 Ús: python3 eval.py <puzzle.json>
 """
@@ -32,9 +32,7 @@ from puzzle import Puzzle
 from solve import _a_star_real
  
  
-# ---------------------------------------------------------------------------
 # Pesos de cada mètrica (han de sumar 1.0)
-# ---------------------------------------------------------------------------
  
 PES_LONGITUD_SOLUCIO = 0.35
 PES_ESPAI_ESTATS     = 0.25
@@ -42,23 +40,17 @@ PES_UNICITAT_SOLUCIO = 0.20
 PES_EFICIENCIA_CAMI  = 0.10
 PES_PONTS            = 0.10
  
-# ---------------------------------------------------------------------------
 # Llindars de referència i límit d'exploració
-# ---------------------------------------------------------------------------
  
 LONGITUD_MAX_REF = 90
 ESTATS_MAX_REF   = 200_000
 PONTS_MAX_REF    = 20
  
-# Límit d'estats per al graf: per sobre d'aquest valor les mètriques d'espai
-# i ponts ja saturen a 1.0, i la longitud es calcula amb A* si cal.
-# 200000 és suficient per discriminar easy/medium i prou ràpid per a generate.
+# Límit d'estats per al graf: per sobre d'aquest valor les mètriques d'espai i ponts ja obtenen la puntuació màxima
 LIMIT_ESTATS = 200_000
  
  
-# ---------------------------------------------------------------------------
 # Mètriques individuals
-# ---------------------------------------------------------------------------
  
 def _normalitzar(valor: float, maxim: float) -> float:
     if maxim <= 0:
@@ -93,30 +85,28 @@ def score_ponts(g: gt.Graph) -> float:
     return _normalitzar(num_ponts, PONTS_MAX_REF)
  
  
-# ---------------------------------------------------------------------------
 # Funció principal d'avaluació
-# ---------------------------------------------------------------------------
  
-def avaluar_puzzle(pz: Puzzle) -> dict:
+def avaluar_puzzle(pz: Puzzle, limit_estats: int | None = LIMIT_ESTATS) -> dict:
     """
     Avalua un puzzle de forma ràpida:
-      1. Genera el graf fins a LIMIT_ESTATS nodes (talla si és massa gran).
+      1. Genera el graf fins a limit_estats nodes (talla si és massa gran).
       2. Extreu num_estats, num_solucions i ponts del graf parcial.
       3. Calcula la longitud òptima amb shortest_distance sobre el graf.
          Si el destí no és assolible dins del límit, fa servir A* com a fallback.
     """
-    # --- Graf parcial -------------------------------------------------------
-    g, nodes_desti = generar_graf(pz, limit_estats=LIMIT_ESTATS)
+    # Graf parcial
+    g, nodes_desti = generar_graf(pz, limit_estats=limit_estats)
  
     num_estats    = g.num_vertices()
     num_solucions = len(nodes_desti)
  
-    # --- Longitud òptima ----------------------------------------------------
+    # Longitud òptima
     longitud_optima = 0
     resoluble = False
  
     if nodes_desti:
-        # Cas feliç: el node destí és dins del graf parcial
+        # Primer cas: el node destí és dins del graf parcial (tallat a 200.000 estats)
         node_inicial = gt.find_vertex(g, g.vp["is_start"], True)[0]
         distancies = gt.shortest_distance(g, source=node_inicial)
         INF = 2**31 - 1
@@ -126,15 +116,17 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
             resoluble = True
  
     if not resoluble:
-        # Fallback: el graf s'ha tallat abans d'arribar al destí.
-        # L'A* és ràpid gràcies a la heurística Manhattan i troba la longitud
-        # exacta sense explorar tot l'espai.
-        cami = _a_star_real(pz)
+        # Segon cas: el graf s'ha tallat abans d'arribar al destí.
+        # S'explora aprofitant l'algorisme A* de solve.py
+        cami = _a_star_real(pz, max_estats=limit_estats)
         if cami is not None:
             longitud_optima = len(cami)
             resoluble = True
-            # Si el graf s'ha tallat, l'espai real és ≥ LIMIT_ESTATS → satura
-            num_estats = max(num_estats, LIMIT_ESTATS)
+            
+            # Només saturem l'espai si hi havia un límit imposat
+            if limit_estats is not None:
+                num_estats = max(num_estats, limit_estats)
+                
             # num_solucions del graf parcial és 0, però el puzzle és resoluble;
             # posem 1 com a estimació conservadora (pitjor cas per a unicitat)
             if num_solucions == 0:
@@ -156,7 +148,7 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
             "puntuacio": 0.0,
         }
  
-    # --- Mètriques ----------------------------------------------------------
+    # Mètriques
     s_longitud   = score_longitud(longitud_optima)
     s_espai      = score_espai(num_estats)
     s_unicitat   = score_unicitat(num_solucions)
@@ -188,14 +180,19 @@ def avaluar_puzzle(pz: Puzzle) -> dict:
     }
  
  
-# ---------------------------------------------------------------------------
 # Impressió del resultat
-# ---------------------------------------------------------------------------
  
 def imprimir_avaluacio(pz: Puzzle, resultat: dict) -> None:
+    """
+    Donat un puzzle, i el resultat de la seva evaluació, imprimeix les puntuacions
+    i les dades en el format desitjat. Aquestes dades són la mida del taulell, el
+    nombre de peces, si és resoluble, el nombre d'estats totals, el nombre de nodes
+    que són solució, la longitud òptima per resoldre'l i una representació gràfica
+    de les mètriques prèviament calculades.
+    """
     print(f"Taulell:          {pz.W}x{pz.H}  ({len(pz.pieces)} peces)")
     print(f"Resoluble:        {'Sí' if resultat['resoluble'] else 'No'}")
-    print(f"Estats totals:    {resultat['num_estats']}")
+    print(f"Estats totals:    {resultat['num_estats']}")  # pot ser > 200.000, però aquest serà el valor màxim que retorni
     print(f"Solucions (dest): {resultat['num_solucions']}")
     print(f"Longitud òptima:  {resultat['longitud_optima']} moviments")
     print()
@@ -207,9 +204,7 @@ def imprimir_avaluacio(pz: Puzzle, resultat: dict) -> None:
     print(f"Puntuació final:  {resultat['puntuacio']:.2f} / 5.00  {'⭐' * round(resultat['puntuacio'])}")
  
  
-# ---------------------------------------------------------------------------
 # Punt d'entrada
-# ---------------------------------------------------------------------------
  
 if __name__ == "__main__":
     if len(sys.argv) < 2:
